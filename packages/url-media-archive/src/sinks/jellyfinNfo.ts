@@ -18,7 +18,7 @@ export function buildJellyfinNfo(input: JellyfinNfoInput): string {
       "creator",
       "uploader_id",
       "channel_id",
-    ]),
+    ]) ?? creatorFromTitle(title),
   );
   const premiered = dateFromMetadata(input.metadata);
   const webpageUrl =
@@ -69,6 +69,13 @@ function firstStringMetadata(
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function creatorFromTitle(title: string | undefined): string | undefined {
+  const separator = " - ";
+  const separatorIndex = title?.indexOf(separator) ?? -1;
+  if (separatorIndex <= 0) return undefined;
+  return title?.slice(0, separatorIndex).trim() || undefined;
 }
 
 function dateFromMetadata(

@@ -45,4 +45,19 @@ describe("buildJellyfinNfo", () => {
     expect(nfo).toContain("<premiered>2026-05-19</premiered>");
     expect(nfo).toContain("<year>2026</year>");
   });
+
+  it("uses title prefix as creator fallback", () => {
+    const nfo = buildJellyfinNfo({
+      canonicalUrl: "https://example.com/media/123",
+      metadata: {
+        id: "123",
+        title: "Prefix Creator - clip title",
+        timestamp: 1779148800,
+      },
+    });
+
+    expect(nfo).toContain("<studio>Prefix Creator</studio>");
+    expect(nfo).toContain("<tag>creator: Prefix Creator</tag>");
+    expect(nfo).toContain("<premiered>2026-05-19</premiered>");
+  });
 });
