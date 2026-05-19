@@ -27,13 +27,14 @@ export function classifyArchiveError(
   error: unknown,
 ): ArchiveFailure {
   const message = errorMessage(error);
-  const lower = message.toLowerCase();
+  const diagnosticMessage = errorDiagnosticMessage(error);
+  const lower = diagnosticMessage.toLowerCase();
   const nodeCode = nodeErrorCode(error);
 
   if (error instanceof CommandError && error.result.timedOut) {
     return failure("retryable_network_timeout", phase, message, error, true);
   }
-  if (/(rate limit|too many requests|\b429\b)/i.test(lower)) {
+  if (/(rate[- ]limit|too many requests|\b429\b)/i.test(lower)) {
     return failure("retryable_rate_limit", phase, message, error, true);
   }
   if (isFilesystemPathFailure(nodeCode, lower)) {
@@ -68,7 +69,7 @@ export function classifyArchiveError(
     return failure("terminal_private_or_deleted", phase, message, error, false);
   }
   if (
-    /(unsupported url|no video formats|no formats found|does not contain|no media|not a video)/i.test(
+    /(unsupported url|no video formats|no formats found|no video (could be )?found|does not contain|no media|not a video)/i.test(
       lower,
     )
   ) {
@@ -173,6 +174,15 @@ function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return "Unknown archive failure";
+}
+
+function errorDiagnosticMessage(error: unknown): string {
+  if (error instanceof CommandError) {
+    return [error.result.stderr, error.result.stdout]
+      .filter(Boolean)
+      .join("\n");
+  }
+  return errorMessage(error);
 }
 
 function nodeErrorCode(error: unknown): string | undefined {

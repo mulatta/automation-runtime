@@ -73,6 +73,48 @@ describe("classifyArchiveError", () => {
     });
   });
 
+  it("does not classify a --cookies argument as an auth failure", () => {
+    const failure = classifyArchiveError(
+      "download",
+      new CommandError(
+        commandResult({
+          args: [
+            "--cookies",
+            "/var/lib/url-media-archive/cookies/browser.netscape.txt",
+          ],
+          stderr:
+            "ERROR: [twitter] 1226906259057594368: No video could be found in this tweet",
+        }),
+      ),
+    );
+
+    expect(failure).toMatchObject({
+      kind: "terminal_unsupported_url",
+      terminal: true,
+      retryable: false,
+    });
+  });
+
+  it("treats syndication fallback rate-limit failures as retryable", () => {
+    const failure = classifyArchiveError(
+      "download",
+      new CommandError(
+        commandResult({
+          stderr:
+            "WARNING: [twitter] Rate-limit exceeded; falling back to syndication endpoint\n" +
+            "WARNING: [twitter] 1226906259057594368: Not all metadata or media is available via syndication endpoint\n" +
+            "ERROR: [twitter] 1226906259057594368: No video could be found in this tweet",
+        }),
+      ),
+    );
+
+    expect(failure).toMatchObject({
+      kind: "retryable_rate_limit",
+      terminal: false,
+      retryable: true,
+    });
+  });
+
   it("classifies filesystem permission failures as terminal", () => {
     const error = Object.assign(new Error("permission denied"), {
       code: "EACCES",

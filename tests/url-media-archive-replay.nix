@@ -38,6 +38,14 @@ let
         cat <<'JSON'
     {"id":"789","title":"Retry fixture","extractor":"test","webpage_url":"https://example.com/media/789","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
     JSON
+      elif [[ " $* " == *"media/890"* ]]; then
+        cat <<'JSON'
+    {"id":"890","title":"No video download fixture","extractor":"test","webpage_url":"https://example.com/media/890","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
+    JSON
+      elif [[ " $* " == *"media/891"* ]]; then
+        cat <<'JSON'
+    {"id":"891","title":"Rate limited no video fixture","extractor":"test","webpage_url":"https://example.com/media/891","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
+    JSON
       else
         cat <<'JSON'
     {"id":"123","title":"Replay fixture","extractor":"test","webpage_url":"https://example.com/media/123","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
@@ -78,6 +86,18 @@ let
       echo "ERROR: network timed out" >&2
       exit 1
     fi
+
+    if [[ "$download_args" == *"media/890"* ]]; then
+      echo "ERROR: [example] 890: No video could be found in this item" >&2
+      exit 1
+    fi
+
+    if [[ "$download_args" == *"media/891"* ]]; then
+      echo "WARNING: [example] Rate-limit exceeded; falling back to syndication endpoint" >&2
+      echo "ERROR: [example] 891: No video could be found in this item" >&2
+      exit 1
+    fi
+
     printf 'media bytes\n' > "$target_dir/replay-fixture.mp4"
     printf '{"id":"123"}\n' > "$target_dir/replay-fixture.info.json"
   '';
@@ -104,6 +124,7 @@ pkgs.testers.runNixOSTest {
         ytDlpPackage = fakeYtDlp;
         ytDlpRequestMinIntervalMs = 1;
         ytDlpRequestJitterMs = 1;
+        cookiePath = "/var/lib/url-media-archive/cookies/browser.netscape.txt";
       };
 
       services.postgresql.authentication = lib.mkForce ''
@@ -323,6 +344,52 @@ pkgs.testers.runNixOSTest {
         "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"failed\" and .probeStatus == \"unavailable\" and .nextRetryAt != null and .error.type == \"retryable_rate_limit\" and .error.retryable == true and .error.terminal == false and (.outputs | length) == 0'",
         timeout=60,
     )
+
+    unsupported_download_payload = json.dumps({
+        "source": "example-feed",
+        "sourceKey": "890",
+        "url": "https://example.com/media/890",
+        "metadata": {"author": "user"},
+    })
+    unsupported_download_response = machine.succeed(
+        "curl --fail --silent --show-error "
+        "-H 'content-type: application/json' "
+        f"--data '{unsupported_download_payload}' "
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
+    )
+    unsupported_download_accepted = json.loads(unsupported_download_response)
+    unsupported_download_status_payload = json.dumps({"source": "example-feed", "sourceKey": "890"})
+    machine.wait_until_succeeds(
+        "curl --fail --silent --show-error --max-time 5 "
+        "-H 'content-type: application/json' "
+        f"--data '{unsupported_download_status_payload}' "
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"terminal_failed\" and .probeStatus == \"has_media\" and .error.type == \"terminal_unsupported_url\" and (.outputs | length) == 0'",
+        timeout=60,
+    )
+    machine.succeed(f"test ! -d {temp_dir_for_job_key(unsupported_download_accepted['jobKey'])}")
+
+    rate_limited_download_payload = json.dumps({
+        "source": "example-feed",
+        "sourceKey": "891",
+        "url": "https://example.com/media/891",
+        "metadata": {"author": "user"},
+    })
+    rate_limited_download_response = machine.succeed(
+        "curl --fail --silent --show-error "
+        "-H 'content-type: application/json' "
+        f"--data '{rate_limited_download_payload}' "
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
+    )
+    rate_limited_download_accepted = json.loads(rate_limited_download_response)
+    rate_limited_download_status_payload = json.dumps({"source": "example-feed", "sourceKey": "891"})
+    machine.wait_until_succeeds(
+        "curl --fail --silent --show-error --max-time 5 "
+        "-H 'content-type: application/json' "
+        f"--data '{rate_limited_download_status_payload}' "
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"failed\" and .probeStatus == \"has_media\" and .nextRetryAt != null and .error.type == \"retryable_rate_limit\" and .error.retryable == true and .error.terminal == false and (.outputs | length) == 0'",
+        timeout=60,
+    )
+    machine.succeed(f"test ! -d {temp_dir_for_job_key(rate_limited_download_accepted['jobKey'])}")
 
     retry_payload = json.dumps({
         "source": "example-feed",
