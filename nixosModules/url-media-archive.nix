@@ -240,6 +240,9 @@ in
 
     systemd.tmpfiles.rules = [
       "d ${cfg.archiveRoot} 0750 ${cfg.user} ${cfg.group} -"
+    ]
+    ++ lib.optionals (cfg.cookiePath != null) [
+      "d ${cookieDir} 0750 ${cfg.user} ${cfg.group} -"
     ];
 
     systemd.services.url-media-archive-worker-migrate = lib.mkIf cfg.runMigrations {
