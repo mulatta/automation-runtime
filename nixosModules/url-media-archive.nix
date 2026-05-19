@@ -336,7 +336,14 @@ in
         for attempt in $(seq 1 60); do
           if curl --fail --silent --show-error --max-time 2 \
             ${lib.escapeShellArg cfg.restateAdminUrl}/deployments \
-            --json ${lib.escapeShellArg (builtins.toJSON { uri = cfg.endpointUrl; })}; then
+            --json ${
+              lib.escapeShellArg (
+                builtins.toJSON {
+                  uri = cfg.endpointUrl;
+                  force = true;
+                }
+              )
+            }; then
             exit 0
           fi
           if [ "$attempt" -eq 60 ]; then
