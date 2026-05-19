@@ -127,12 +127,20 @@ export const RateLimitReserveRequest = z
       .int()
       .nonnegative()
       .max(24 * 60 * 60 * 1000),
+    jitterMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(24 * 60 * 60 * 1000)
+      .default(0),
   })
   .strict();
 export type RateLimitReserveRequest = z.infer<typeof RateLimitReserveRequest>;
 
 export const RateLimitReservation = z.object({
   delayMs: z.number().int().nonnegative(),
+  intervalMs: z.number().int().nonnegative(),
+  jitterMs: z.number().int().nonnegative(),
   reservedAt: z.string(),
   nextAvailableAt: z.string(),
 });

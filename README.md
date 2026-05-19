@@ -183,6 +183,7 @@ URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_TIMEOUT_MS
 URL_MEDIA_ARCHIVE_YTDLP_PROBE_CONCURRENCY
 URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY
 URL_MEDIA_ARCHIVE_YTDLP_REQUEST_MIN_INTERVAL_MS
+URL_MEDIA_ARCHIVE_YTDLP_REQUEST_JITTER_MS
 URL_MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS
 ```
 
@@ -199,7 +200,8 @@ NixOS module options live under `services.restateWorkers.url-media-archive`:
   keepFailedTempDirs = false;
   ytDlpProbeConcurrency = 2;
   ytDlpDownloadConcurrency = 2;
-  ytDlpRequestMinIntervalMs = 60000;
+  ytDlpRequestMinIntervalMs = 90000;
+  ytDlpRequestJitterMs = 60000;
 
   requestIdentity.publicKeys = [
     "publickeyv1_..."
@@ -216,7 +218,7 @@ NixOS module options live under `services.restateWorkers.url-media-archive`:
 }
 ```
 
-The NixOS module owns worker-specific PostgreSQL database, yt-dlp, archive root, migration service, worker service, and Restate deployment registration wiring. It only passes `cookiePath` to yt-dlp; create and refresh the cookie file out of band with the worker user/group permissions. `ytDlpRequestMinIntervalMs` enables a durable per-host Restate rate limiter before probe and download steps, so large drains cannot issue back-to-back yt-dlp requests for the same hostname. Registration waits for the worker `/health` endpoint before calling the Restate Admin API. Set `requestIdentity.publicKeys` to require Restate Server request signatures on discovery and invocation requests; `/health` remains unsigned for readiness probes.
+The NixOS module owns worker-specific PostgreSQL database, yt-dlp, archive root, migration service, worker service, and Restate deployment registration wiring. It only passes `cookiePath` to yt-dlp; create and refresh the cookie file out of band with the worker user/group permissions. `ytDlpRequestMinIntervalMs` enables a durable per-host Restate rate limiter before probe and download steps, so large drains cannot issue back-to-back yt-dlp requests for the same hostname. `ytDlpRequestJitterMs` adds deterministic Restate jitter to each reserved slot to avoid fixed request cadence. Registration waits for the worker `/health` endpoint before calling the Restate Admin API. Set `requestIdentity.publicKeys` to require Restate Server request signatures on discovery and invocation requests; `/health` remains unsigned for readiness probes.
 
 ## Development
 

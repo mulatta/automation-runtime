@@ -78,6 +78,7 @@ type UrlMediaArchiveDeps = {
   archiveRoot?: string;
   keepFailedTempDirs?: boolean;
   ytDlpRequestMinIntervalMs?: number;
+  ytDlpRequestJitterMs?: number;
 };
 
 type SubmitAccepted = {
@@ -386,10 +387,17 @@ export function createUrlMediaRateLimit() {
           "state",
         )) ?? { nextAvailableAtMs: now };
         const reservedAtMs = Math.max(now, state.nextAvailableAtMs);
-        const nextAvailableAtMs = reservedAtMs + request.minIntervalMs;
+        const jitterMs =
+          request.jitterMs === 0
+            ? 0
+            : Math.floor(ctx.rand.random() * (request.jitterMs + 1));
+        const intervalMs = request.minIntervalMs + jitterMs;
+        const nextAvailableAtMs = reservedAtMs + intervalMs;
         ctx.set("state", { nextAvailableAtMs });
         return {
           delayMs: Math.max(0, reservedAtMs - now),
+          intervalMs,
+          jitterMs,
           reservedAt: new Date(reservedAtMs).toISOString(),
           nextAvailableAt: new Date(nextAvailableAtMs).toISOString(),
         };
@@ -546,14 +554,15 @@ async function waitForYtDlpRateLimitSlot(
   phase: "probe" | "download",
 ): Promise<void> {
   const minIntervalMs = deps.ytDlpRequestMinIntervalMs ?? 0;
-  if (minIntervalMs <= 0) return;
+  const jitterMs = deps.ytDlpRequestJitterMs ?? 0;
+  if (minIntervalMs <= 0 && jitterMs <= 0) return;
 
   const bucket = rateLimitBucketForUrl(url);
   const reservation = await ctx.genericCall<unknown, RateLimitReservation>({
     service: URL_MEDIA_RATE_LIMIT_SERVICE,
     method: "reserve",
     key: bucket,
-    parameter: { minIntervalMs },
+    parameter: { minIntervalMs, jitterMs },
     inputSerde: restate.serde.json,
     outputSerde: restate.serde.json,
   });

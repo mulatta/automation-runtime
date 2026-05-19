@@ -26,6 +26,7 @@ let
     URL_MEDIA_ARCHIVE_YTDLP_PROBE_CONCURRENCY=${toString cfg.ytDlpProbeConcurrency}
     URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY=${toString cfg.ytDlpDownloadConcurrency}
     URL_MEDIA_ARCHIVE_YTDLP_REQUEST_MIN_INTERVAL_MS=${toString cfg.ytDlpRequestMinIntervalMs}
+    URL_MEDIA_ARCHIVE_YTDLP_REQUEST_JITTER_MS=${toString cfg.ytDlpRequestJitterMs}
     URL_MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS=${lib.boolToString cfg.keepFailedTempDirs}
     ${databaseEnv}
   '';
@@ -178,6 +179,12 @@ in
       type = lib.types.ints.unsigned;
       default = 0;
       description = "Minimum milliseconds between yt-dlp requests for the same URL hostname. Zero disables durable host throttling.";
+    };
+
+    ytDlpRequestJitterMs = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 0;
+      description = "Maximum random milliseconds added to each durable per-host yt-dlp throttle interval.";
     };
 
     keepFailedTempDirs = lib.mkOption {

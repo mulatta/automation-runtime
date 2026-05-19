@@ -99,6 +99,7 @@ describe("runtime config", () => {
       ytDlpProbeConcurrency: 2,
       ytDlpDownloadConcurrency: 2,
       ytDlpRequestMinIntervalMs: 0,
+      ytDlpRequestJitterMs: 0,
     });
 
     expect(
@@ -109,6 +110,7 @@ describe("runtime config", () => {
         URL_MEDIA_ARCHIVE_YTDLP_PROBE_CONCURRENCY: "3",
         URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY: "4",
         URL_MEDIA_ARCHIVE_YTDLP_REQUEST_MIN_INTERVAL_MS: "60000",
+        URL_MEDIA_ARCHIVE_YTDLP_REQUEST_JITTER_MS: "30000",
       }),
     ).toMatchObject({
       ytDlpBinary: "/run/current-system/sw/bin/yt-dlp",
@@ -117,6 +119,7 @@ describe("runtime config", () => {
       ytDlpProbeConcurrency: 3,
       ytDlpDownloadConcurrency: 4,
       ytDlpRequestMinIntervalMs: 60000,
+      ytDlpRequestJitterMs: 30000,
     });
   });
 });

@@ -55,6 +55,7 @@ async function main(): Promise<void> {
         archiveRoot: config.archiveRoot,
         keepFailedTempDirs: config.keepFailedTempDirs,
         ytDlpRequestMinIntervalMs: config.ytDlpRequestMinIntervalMs,
+        ytDlpRequestJitterMs: config.ytDlpRequestJitterMs,
       }),
       createUrlMediaRateLimit(),
     ],

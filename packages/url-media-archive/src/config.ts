@@ -13,6 +13,7 @@ export type RuntimeConfig = {
   ytDlpProbeConcurrency: number;
   ytDlpDownloadConcurrency: number;
   ytDlpRequestMinIntervalMs: number;
+  ytDlpRequestJitterMs: number;
   keepFailedTempDirs: boolean;
 };
 
@@ -51,6 +52,10 @@ export function readRuntimeConfig(
     ),
     ytDlpRequestMinIntervalMs: parseNonNegativeInteger(
       env.URL_MEDIA_ARCHIVE_YTDLP_REQUEST_MIN_INTERVAL_MS,
+      0,
+    ),
+    ytDlpRequestJitterMs: parseNonNegativeInteger(
+      env.URL_MEDIA_ARCHIVE_YTDLP_REQUEST_JITTER_MS,
       0,
     ),
     keepFailedTempDirs: parseBoolean(

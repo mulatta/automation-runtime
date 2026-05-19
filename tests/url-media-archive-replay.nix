@@ -103,6 +103,7 @@ pkgs.testers.runNixOSTest {
         endpointUrl = "http://127.0.0.1:9080";
         ytDlpPackage = fakeYtDlp;
         ytDlpRequestMinIntervalMs = 1;
+        ytDlpRequestJitterMs = 1;
       };
 
       services.postgresql.authentication = lib.mkForce ''
