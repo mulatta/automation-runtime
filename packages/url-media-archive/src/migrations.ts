@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS url_archive_outputs (
   path text NOT NULL,
   bytes bigint,
   mime_type text,
-  sha256 text,
+  blake3 text,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
 
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -89,6 +89,13 @@ CREATE INDEX IF NOT EXISTS url_archive_sources_job_idx
 CREATE INDEX IF NOT EXISTS url_archive_sources_source_idx
   ON url_archive_sources (source, source_key);
 
+ALTER TABLE url_archive_outputs
+  ADD COLUMN IF NOT EXISTS blake3 text;
+
 CREATE INDEX IF NOT EXISTS url_archive_outputs_job_idx
   ON url_archive_outputs (job_id);
+
+CREATE INDEX IF NOT EXISTS url_archive_outputs_blake3_bytes_idx
+  ON url_archive_outputs (blake3, bytes)
+  WHERE blake3 IS NOT NULL;
 `;

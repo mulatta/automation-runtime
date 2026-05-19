@@ -105,7 +105,7 @@ describe("ArchiveDatabase", () => {
         sink_type: "filesystem",
         bytes: "1024",
         mime_type: "video/mp4",
-        sha256: "abc",
+        blake3: "abc",
         metadata: { title: "Video" },
       }),
     ]);
@@ -122,7 +122,7 @@ describe("ArchiveDatabase", () => {
         sinkType: "filesystem",
         bytes: 1024,
         mimeType: "video/mp4",
-        sha256: "abc",
+        blake3: "abc",
         metadata: { title: "Video" },
       },
     ]);
@@ -295,7 +295,7 @@ describe("ArchiveDatabase", () => {
         path: "/var/lib/url-media-archive/archive/db/2026/05/123/video.mp4",
         bytes: 1024,
         mimeType: "video/mp4",
-        sha256: "abc",
+        blake3: "abc",
         metadata: { ext: "mp4" },
       },
     ];

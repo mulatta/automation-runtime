@@ -1,13 +1,6 @@
-import { createHash } from "crypto";
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "fs/promises";
+import { createReadStream } from "fs";
+import { copyFile, mkdir, rename, rm, stat, writeFile } from "fs/promises";
+import { createBLAKE3 } from "hash-wasm";
 import { basename, extname } from "path";
 
 import {
@@ -49,11 +42,11 @@ export async function storeFilesystemOutputs(
     );
     await moveFile(downloadedFile, targetPath);
     const fileStat = await stat(targetPath);
-    const sha256 = await sha256File(targetPath);
+    const blake3 = await blake3File(targetPath);
     const output: ArchiveOutputInput = {
       path: targetPath,
       bytes: fileStat.size,
-      sha256,
+      blake3,
       mimeType: mimeTypeFromPath(targetPath),
       metadata: {
         ...input.metadata,
@@ -148,7 +141,7 @@ async function writeSidecar(
         archivedAt: input.observedAt,
         path: output.path,
         bytes: output.bytes,
-        sha256: output.sha256,
+        blake3: output.blake3,
         mimeType: output.mimeType,
         metadata: input.metadata ?? {},
       },
@@ -173,9 +166,13 @@ async function writeJellyfinNfo(
   );
 }
 
-async function sha256File(path: string): Promise<string> {
-  const data = await readFile(path);
-  return createHash("sha256").update(data).digest("hex");
+async function blake3File(path: string): Promise<string> {
+  const hasher = await createBLAKE3();
+  const stream: AsyncIterable<Buffer> = createReadStream(path);
+  for await (const chunk of stream) {
+    hasher.update(chunk);
+  }
+  return hasher.digest("hex");
 }
 
 function finalMediaFilename(

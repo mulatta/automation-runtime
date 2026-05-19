@@ -115,8 +115,8 @@ describe("storeFilesystemOutputs", () => {
       ),
     );
     expect(output.bytes).toBe(11);
-    expect(output.sha256).toBe(
-      "b6acae78c76442a73a94762eb91711a59c642ac3cfdaad636a061bdb7fad6975",
+    expect(output.blake3).toBe(
+      "0219657e397cb955f0fef7e97634c5932b59c76362cbc72b74a5309405090f2c",
     );
     expect(readFileSync(output.path, "utf8")).toBe("media bytes");
     expect(
