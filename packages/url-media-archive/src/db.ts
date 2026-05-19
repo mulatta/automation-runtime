@@ -41,7 +41,7 @@ export type ArchiveOutputInput = {
   sinkType?: "filesystem";
   bytes?: number;
   mimeType?: string;
-  sha256?: string;
+  blake3?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -49,7 +49,7 @@ export type ArchiveOutput = Required<Pick<ArchiveOutputInput, "path">> & {
   sinkType: "filesystem";
   bytes?: number;
   mimeType?: string;
-  sha256?: string;
+  blake3?: string;
   metadata: Record<string, unknown>;
 };
 
@@ -141,7 +141,7 @@ const ArchiveOutputRow = z.object({
   sink_type: z.literal("filesystem").or(z.string()),
   bytes: z.union([z.number(), z.string()]).nullable().optional(),
   mime_type: z.string().nullable().optional(),
-  sha256: z.string().nullable().optional(),
+  blake3: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -467,7 +467,7 @@ export class ArchiveDatabase {
   private async listOutputs(jobId: string): Promise<ArchiveOutput[]> {
     const result = await this.db.query(
       `
-        SELECT path, sink_type, bytes, mime_type, sha256, metadata
+        SELECT path, sink_type, bytes, mime_type, blake3, metadata
         FROM url_archive_outputs
         WHERE job_id = $1
         ORDER BY created_at ASC, path ASC
@@ -542,7 +542,7 @@ export class ArchiveDatabase {
     await this.db.query(
       `
         INSERT INTO url_archive_outputs (
-          job_id, sink_type, path, bytes, mime_type, sha256, metadata
+          job_id, sink_type, path, bytes, mime_type, blake3, metadata
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
         ON CONFLICT (job_id, path) DO NOTHING
@@ -554,7 +554,7 @@ export class ArchiveDatabase {
         output.path,
         output.bytes ?? null,
         output.mimeType ?? null,
-        output.sha256 ?? null,
+        output.blake3 ?? null,
         stringifyJsonForPostgres(output.metadata ?? {}),
       ],
     );
@@ -597,7 +597,7 @@ function parseOutput(row: Record<string, unknown> | undefined): ArchiveOutput {
     sinkType: "filesystem",
     bytes: numberFromDatabase(parsed.bytes),
     mimeType: parsed.mime_type ?? undefined,
-    sha256: parsed.sha256 ?? undefined,
+    blake3: parsed.blake3 ?? undefined,
     metadata: parsed.metadata ?? {},
   };
 }

@@ -101,7 +101,7 @@ Status response includes catalog fields, last error, and stored outputs:
       "path": "/var/lib/url-media-archive/archive/db/2026/05/018f6e9d-4a31-7565-982a-cb5e5f01d31f/video.mp4",
       "bytes": 1024,
       "mimeType": "video/mp4",
-      "sha256": "...",
+      "blake3": "...",
       "metadata": { "canonicalUrl": "https://example.com/media/12345" }
     }
   ]
