@@ -1,0 +1,18 @@
+{
+  "name": "@restate-workflows/media-archive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generic Restate worker for archiving URLs to filesystem storage",
+  "main": "dist/src/main.js",
+  "types": "dist/src/main.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/main.js",
+    "test": "jest --testPathPatterns=packages/media-archive/"
+  },
+  "dependencies": {
+    "@restatedev/restate-sdk": "^1.9.0",
+    "pg": "^8.20.0",
+    "zod": "^4.1.12"
+  }
+}

@@ -1,0 +1,11 @@
+.direnv/
+node_modules/
+dist/
+coverage/
+__pycache__/
+result
+result-*
+*.log
+
+# Local planning notes
+IMPLEMENTATION_PLAN.md

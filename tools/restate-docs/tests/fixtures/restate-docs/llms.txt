@@ -1,0 +1,9 @@
+# Restate
+
+> Restate docs index.
+
+## Docs
+
+- [Kafka ingress](https://docs.restate.dev/guides/kafka-ingress.md): Configure Kafka ingress to start workflows from topic records.
+- [Server configuration](https://docs.restate.dev/operate/configuration/server.md): Configure worker options, ports, and invocation settings.
+- [Error handling](https://docs.restate.dev/guides/error-handling.md): Retry policies, terminal errors, and sagas.
