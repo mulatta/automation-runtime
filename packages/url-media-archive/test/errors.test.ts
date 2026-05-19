@@ -43,7 +43,7 @@ describe("classifyArchiveError", () => {
       retryable: true,
     });
     expect(calculateNextRetryAt(failure, 1, "2026-05-18T00:00:00.000Z")).toBe(
-      "2026-05-18T00:30:00.000Z",
+      "2026-05-18T12:00:00.000Z",
     );
   });
 

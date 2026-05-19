@@ -122,9 +122,7 @@ export function calculateNextRetryAt(
 function retryDelayMs(kind: ArchiveFailureKind, attempts: number): number {
   const attemptIndex = Math.max(0, attempts - 1);
   const schedule =
-    kind === "retryable_rate_limit"
-      ? [30, 120, 720, 1440]
-      : [5, 30, 120, 720, 1440];
+    kind === "retryable_rate_limit" ? [720, 1440] : [5, 30, 120, 720, 1440];
   const minutes = schedule[Math.min(attemptIndex, schedule.length - 1)];
   return minutes * 60 * 1000;
 }

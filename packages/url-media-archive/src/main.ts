@@ -6,7 +6,11 @@ import { Pool } from "pg";
 import { readRuntimeConfig } from "./config";
 import { ArchiveDatabase } from "./db";
 import { initialMigrationSql } from "./migrations";
-import { createUrlMediaArchive, createUrlMediaJob } from "./service";
+import {
+  createUrlMediaArchive,
+  createUrlMediaJob,
+  createUrlMediaRateLimit,
+} from "./service";
 import {
   cleanupArchiveFinalDir,
   cleanupDownloadTempDir,
@@ -50,7 +54,9 @@ async function main(): Promise<void> {
         cleanupTempDir: { cleanup: cleanupDownloadTempDir },
         archiveRoot: config.archiveRoot,
         keepFailedTempDirs: config.keepFailedTempDirs,
+        ytDlpRequestMinIntervalMs: config.ytDlpRequestMinIntervalMs,
       }),
+      createUrlMediaRateLimit(),
     ],
     identityKeys: config.restateIdentityKeys,
   });

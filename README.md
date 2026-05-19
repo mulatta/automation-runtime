@@ -163,7 +163,7 @@ Default retry backoff:
 
 ```text
 network/timeout/5xx/unknown: 5m -> 30m -> 2h -> 12h -> 24h
-rate limit:                  30m -> 2h -> 12h -> 24h
+rate limit:                  12h -> 24h
 ```
 
 ## Runtime configuration
@@ -180,6 +180,9 @@ URL_MEDIA_ARCHIVE_COOKIE_PATH
 URL_MEDIA_ARCHIVE_YTDLP_BINARY
 URL_MEDIA_ARCHIVE_YTDLP_PROBE_TIMEOUT_MS
 URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_TIMEOUT_MS
+URL_MEDIA_ARCHIVE_YTDLP_PROBE_CONCURRENCY
+URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY
+URL_MEDIA_ARCHIVE_YTDLP_REQUEST_MIN_INTERVAL_MS
 URL_MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS
 ```
 
@@ -194,6 +197,9 @@ NixOS module options live under `services.restateWorkers.url-media-archive`:
   endpointUrl = "http://127.0.0.1:9080";
   archiveRoot = "/var/lib/url-media-archive/archive";
   keepFailedTempDirs = false;
+  ytDlpProbeConcurrency = 2;
+  ytDlpDownloadConcurrency = 2;
+  ytDlpRequestMinIntervalMs = 60000;
 
   requestIdentity.publicKeys = [
     "publickeyv1_..."
@@ -210,7 +216,7 @@ NixOS module options live under `services.restateWorkers.url-media-archive`:
 }
 ```
 
-The NixOS module owns worker-specific PostgreSQL database, yt-dlp, archive root, migration service, worker service, and Restate deployment registration wiring. It only passes `cookiePath` to yt-dlp; create and refresh the cookie file out of band with the worker user/group permissions. Registration waits for the worker `/health` endpoint before calling the Restate Admin API. Set `requestIdentity.publicKeys` to require Restate Server request signatures on discovery and invocation requests; `/health` remains unsigned for readiness probes.
+The NixOS module owns worker-specific PostgreSQL database, yt-dlp, archive root, migration service, worker service, and Restate deployment registration wiring. It only passes `cookiePath` to yt-dlp; create and refresh the cookie file out of band with the worker user/group permissions. `ytDlpRequestMinIntervalMs` enables a durable per-host Restate rate limiter before probe and download steps, so large drains cannot issue back-to-back yt-dlp requests for the same hostname. Registration waits for the worker `/health` endpoint before calling the Restate Admin API. Set `requestIdentity.publicKeys` to require Restate Server request signatures on discovery and invocation requests; `/health` remains unsigned for readiness probes.
 
 ## Development
 

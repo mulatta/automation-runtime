@@ -120,6 +120,24 @@ export const UrlMediaJobRunRequest = z
   .strict();
 export type UrlMediaJobRunRequest = z.infer<typeof UrlMediaJobRunRequest>;
 
+export const RateLimitReserveRequest = z
+  .object({
+    minIntervalMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(24 * 60 * 60 * 1000),
+  })
+  .strict();
+export type RateLimitReserveRequest = z.infer<typeof RateLimitReserveRequest>;
+
+export const RateLimitReservation = z.object({
+  delayMs: z.number().int().nonnegative(),
+  reservedAt: z.string(),
+  nextAvailableAt: z.string(),
+});
+export type RateLimitReservation = z.infer<typeof RateLimitReservation>;
+
 export const WorkerStatus = z.object({
   status: z.literal("ok"),
   worker: z.literal("url-media-archive"),

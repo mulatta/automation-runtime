@@ -12,6 +12,7 @@ export type RuntimeConfig = {
   ytDlpDownloadTimeoutMs: number;
   ytDlpProbeConcurrency: number;
   ytDlpDownloadConcurrency: number;
+  ytDlpRequestMinIntervalMs: number;
   keepFailedTempDirs: boolean;
 };
 
@@ -47,6 +48,10 @@ export function readRuntimeConfig(
     ytDlpDownloadConcurrency: parsePositiveInteger(
       env.URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY,
       2,
+    ),
+    ytDlpRequestMinIntervalMs: parseNonNegativeInteger(
+      env.URL_MEDIA_ARCHIVE_YTDLP_REQUEST_MIN_INTERVAL_MS,
+      0,
     ),
     keepFailedTempDirs: parseBoolean(
       env.URL_MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS,
@@ -106,11 +111,22 @@ function parsePositiveInteger(
   value: string | undefined,
   fallback: number,
 ): number {
+  const parsed = parseNonNegativeInteger(value, fallback);
+  if (parsed <= 0) {
+    throw new Error(`Invalid positive integer: ${value?.trim()}`);
+  }
+  return parsed;
+}
+
+function parseNonNegativeInteger(
+  value: string | undefined,
+  fallback: number,
+): number {
   const raw = value?.trim();
   if (!raw) return fallback;
   const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`Invalid positive integer: ${raw}`);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`Invalid non-negative integer: ${raw}`);
   }
   return parsed;
 }

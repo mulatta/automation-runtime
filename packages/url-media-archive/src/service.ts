@@ -18,6 +18,7 @@ import type { YtDlpDownloadResult, YtDlpProbeResult } from "./ytdlp";
 import { canonicalizeUrl, jobIdFromJobKey, jobKeyForJobId } from "./ids";
 import {
   DrainPendingRequest,
+  RateLimitReserveRequest,
   UrlMediaJobRunRequest,
   StatusBySourceRequest,
   StatusRequest,
@@ -25,12 +26,14 @@ import {
   SubmitJobRequest,
   SubmitUrlRequest,
   type ArchiveJobSnapshot,
+  type RateLimitReservation,
   type WorkerStatus,
 } from "./schema";
 import { assertSafeArchiveUrl } from "./urlSafety";
 
 const WORKER_VERSION = "0.1.0";
 const URL_MEDIA_JOB_SERVICE = "UrlMediaJob";
+const URL_MEDIA_RATE_LIMIT_SERVICE = "UrlMediaArchiveRateLimit";
 const RUN_METHOD = "run";
 
 type MediaProber = {
@@ -74,6 +77,7 @@ type UrlMediaArchiveDeps = {
   cleanupTempDir?: TempDirCleaner;
   archiveRoot?: string;
   keepFailedTempDirs?: boolean;
+  ytDlpRequestMinIntervalMs?: number;
 };
 
 type SubmitAccepted = {
@@ -368,11 +372,39 @@ export function createUrlMediaJob(deps: UrlMediaArchiveDeps = {}) {
   });
 }
 
+export function createUrlMediaRateLimit() {
+  return restate.object({
+    name: URL_MEDIA_RATE_LIMIT_SERVICE,
+    handlers: {
+      reserve: async (
+        ctx: restate.ObjectContext,
+        input: unknown,
+      ): Promise<RateLimitReservation> => {
+        const request = RateLimitReserveRequest.parse(input ?? {});
+        const now = await ctx.date.now();
+        const state = (await ctx.get<{ nextAvailableAtMs: number }>(
+          "state",
+        )) ?? { nextAvailableAtMs: now };
+        const reservedAtMs = Math.max(now, state.nextAvailableAtMs);
+        const nextAvailableAtMs = reservedAtMs + request.minIntervalMs;
+        ctx.set("state", { nextAvailableAtMs });
+        return {
+          delayMs: Math.max(0, reservedAtMs - now),
+          reservedAt: new Date(reservedAtMs).toISOString(),
+          nextAvailableAt: new Date(nextAvailableAtMs).toISOString(),
+        };
+      },
+    },
+  });
+}
+
 export const urlMediaArchive = createUrlMediaArchive();
 export const urlMediaJob = createUrlMediaJob();
+export const urlMediaRateLimit = createUrlMediaRateLimit();
 
 export type UrlMediaArchive = ReturnType<typeof createUrlMediaArchive>;
 export type UrlMediaJob = ReturnType<typeof createUrlMediaJob>;
+export type UrlMediaRateLimit = ReturnType<typeof createUrlMediaRateLimit>;
 
 function requireDatabase(deps: UrlMediaArchiveDeps): ArchiveStore {
   if (!deps.db) {
@@ -453,6 +485,7 @@ async function probeDbJob(
     return await stateFromJob(ctx, job);
   }
 
+  await waitForYtDlpRateLimitSlot(ctx, deps, job.url, "probe");
   const probe = await ctx.run("probe-media", () => prober.probe(job.url));
   const updated = await persistProbeResult(ctx, db, job, probe);
   const probeState = await stateFromJobAndProbe(ctx, updated ?? job, probe);
@@ -506,6 +539,34 @@ async function probeDbJob(
   };
 }
 
+async function waitForYtDlpRateLimitSlot(
+  ctx: restate.ObjectContext,
+  deps: UrlMediaArchiveDeps,
+  url: string,
+  phase: "probe" | "download",
+): Promise<void> {
+  const minIntervalMs = deps.ytDlpRequestMinIntervalMs ?? 0;
+  if (minIntervalMs <= 0) return;
+
+  const bucket = rateLimitBucketForUrl(url);
+  const reservation = await ctx.genericCall<unknown, RateLimitReservation>({
+    service: URL_MEDIA_RATE_LIMIT_SERVICE,
+    method: "reserve",
+    key: bucket,
+    parameter: { minIntervalMs },
+    inputSerde: restate.serde.json,
+    outputSerde: restate.serde.json,
+  });
+
+  if (reservation.delayMs > 0) {
+    await ctx.sleep(reservation.delayMs, `yt-dlp-rate-limit-${phase}`);
+  }
+}
+
+function rateLimitBucketForUrl(url: string): string {
+  return new URL(url).hostname.toLowerCase();
+}
+
 async function archiveDownloadedMedia(
   ctx: restate.ObjectContext,
   deps: UrlMediaArchiveDeps,
@@ -521,6 +582,7 @@ async function archiveDownloadedMedia(
   const archiveRoot = deps.archiveRoot;
   if (!downloader || !sink || !archiveRoot) return null;
 
+  await waitForYtDlpRateLimitSlot(ctx, deps, input.url, "download");
   const targetDir = downloadTempDir(archiveRoot, ctx.key);
   const download = await ctx.run("download-media", async () => {
     try {
