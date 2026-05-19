@@ -32,7 +32,7 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 
 describe("downloadWithYtDlp", () => {
   it("downloads with fixed yt-dlp args and reports media files", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "media-archive-ytdlp-"));
+    const targetDir = mkdtempSync(join(tmpdir(), "url-media-archive-ytdlp-"));
     const runCommand = jest.fn().mockImplementation(() => {
       writeFileSync(join(targetDir, "video.mp4"), "media");
       writeFileSync(join(targetDir, "video.info.json"), "{}");

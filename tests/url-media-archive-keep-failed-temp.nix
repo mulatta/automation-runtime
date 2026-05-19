@@ -1,6 +1,6 @@
 {
   lib,
-  mediaArchivePackage,
+  urlMediaArchivePackage,
   pkgs,
   restatePackage,
 }:
@@ -45,12 +45,12 @@ let
   '';
 in
 pkgs.testers.runNixOSTest {
-  name = "media-archive-keep-failed-temp";
+  name = "url-media-archive-keep-failed-temp";
 
   nodes.machine =
     { ... }:
     {
-      imports = [ ../nixosModules/media-archive.nix ];
+      imports = [ ../nixosModules/url-media-archive.nix ];
 
       environment.systemPackages = [
         pkgs.curl
@@ -58,9 +58,9 @@ pkgs.testers.runNixOSTest {
         pkgs.postgresql
       ];
 
-      services.restateWorkers.media-archive = {
+      services.restateWorkers.url-media-archive = {
         enable = true;
-        package = mediaArchivePackage;
+        package = urlMediaArchivePackage;
         restateAdminUrl = "http://127.0.0.1:9070";
         endpointUrl = "http://127.0.0.1:9080";
         ytDlpPackage = fakeYtDlp;
@@ -105,17 +105,17 @@ pkgs.testers.runNixOSTest {
     import re
 
     def temp_dir_for_job_key(job_key):
-        return "/var/lib/media-archive/archive/.tmp/" + re.sub(r"[^A-Za-z0-9._-]", "_", job_key)
+        return "/var/lib/url-media-archive/archive/.tmp/" + re.sub(r"[^A-Za-z0-9._-]", "_", job_key)
 
     machine.start()
     machine.wait_for_unit("postgresql.service")
     machine.wait_for_unit("restate.service")
     machine.wait_for_open_port(8080)
     machine.wait_for_open_port(9070)
-    machine.wait_until_succeeds("systemctl show -p Result --value media-archive-worker-migrate.service | grep '^success$'")
-    machine.wait_for_unit("media-archive-worker.service")
+    machine.wait_until_succeeds("systemctl show -p Result --value url-media-archive-worker-migrate.service | grep '^success$'")
+    machine.wait_for_unit("url-media-archive-worker.service")
     machine.wait_for_open_port(9080)
-    machine.wait_until_succeeds("systemctl show -p Result --value media-archive-worker-register.service | grep '^success$'")
+    machine.wait_until_succeeds("systemctl show -p Result --value url-media-archive-worker-register.service | grep '^success$'")
 
     payload = json.dumps({
         "source": "example-feed",
@@ -127,7 +127,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{payload}' "
-        "http://127.0.0.1:8080/MediaArchive/submitDiscoveredUrl > /tmp/accepted-456.json",
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl > /tmp/accepted-456.json",
         timeout=60,
     )
     response = machine.succeed("cat /tmp/accepted-456.json")
@@ -137,7 +137,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/statusBySource | jq -e '.status == \"terminal_failed\" and .probeStatus == \"has_media\"'",
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"terminal_failed\" and .probeStatus == \"has_media\"'",
         timeout=60,
     )
     temp_dir = temp_dir_for_job_key(accepted["jobKey"])

@@ -1,6 +1,6 @@
 {
   lib,
-  mediaArchivePackage,
+  urlMediaArchivePackage,
   pkgs,
   restatePackage,
 }:
@@ -83,12 +83,12 @@ let
   '';
 in
 pkgs.testers.runNixOSTest {
-  name = "media-archive-replay";
+  name = "url-media-archive-replay";
 
   nodes.machine =
     { ... }:
     {
-      imports = [ ../nixosModules/media-archive.nix ];
+      imports = [ ../nixosModules/url-media-archive.nix ];
 
       environment.systemPackages = [
         pkgs.curl
@@ -96,9 +96,9 @@ pkgs.testers.runNixOSTest {
         pkgs.postgresql
       ];
 
-      services.restateWorkers.media-archive = {
+      services.restateWorkers.url-media-archive = {
         enable = true;
-        package = mediaArchivePackage;
+        package = urlMediaArchivePackage;
         restateAdminUrl = "http://127.0.0.1:9070";
         endpointUrl = "http://127.0.0.1:9080";
         ytDlpPackage = fakeYtDlp;
@@ -146,17 +146,17 @@ pkgs.testers.runNixOSTest {
     import re
 
     def temp_dir_for_job_key(job_key):
-        return "/var/lib/media-archive/archive/.tmp/" + re.sub(r"[^A-Za-z0-9._-]", "_", job_key)
+        return "/var/lib/url-media-archive/archive/.tmp/" + re.sub(r"[^A-Za-z0-9._-]", "_", job_key)
 
     machine.start()
     machine.wait_for_unit("postgresql.service")
     machine.wait_for_unit("restate.service")
     machine.wait_for_open_port(8080)
     machine.wait_for_open_port(9070)
-    machine.wait_until_succeeds("systemctl show -p Result --value media-archive-worker-migrate.service | grep '^success$'")
-    machine.wait_for_unit("media-archive-worker.service")
+    machine.wait_until_succeeds("systemctl show -p Result --value url-media-archive-worker-migrate.service | grep '^success$'")
+    machine.wait_for_unit("url-media-archive-worker.service")
     machine.wait_for_open_port(9080)
-    machine.wait_until_succeeds("systemctl show -p Result --value media-archive-worker-register.service | grep '^success$'")
+    machine.wait_until_succeeds("systemctl show -p Result --value url-media-archive-worker-register.service | grep '^success$'")
 
     payload = json.dumps({
         "source": "example-feed",
@@ -168,7 +168,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{payload}' "
-        "http://127.0.0.1:8080/MediaArchive/submitDiscoveredUrl > /tmp/accepted-123.json",
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl > /tmp/accepted-123.json",
         timeout=60,
     )
     response = machine.succeed("cat /tmp/accepted-123.json")
@@ -183,14 +183,14 @@ pkgs.testers.runNixOSTest {
             "curl --fail --silent --show-error "
             "-H 'content-type: application/json' "
             f"--data '{status_payload}' "
-            "http://127.0.0.1:8080/MediaArchive/statusBySource"
+            "http://127.0.0.1:8080/UrlMediaArchive/statusBySource"
         )
 
     machine.wait_until_succeeds(
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/statusBySource | jq -e '.status == \"stored\" and .probeStatus == \"has_media\" and (.outputs | length) == 1 and .error == {}'",
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"stored\" and .probeStatus == \"has_media\" and (.outputs | length) == 1 and .error == {}'",
         timeout=60,
     )
     status_json = json.loads(read_status())
@@ -201,11 +201,11 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error "
         "-H 'content-type: application/json' "
         f"--data '{job_key_status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/status | jq -e '.id == \"%s\" and .status == \"stored\" and (.outputs | length) == 1 and .error == {}'" % accepted["jobId"]
+        "http://127.0.0.1:8080/UrlMediaArchive/status | jq -e '.id == \"%s\" and .status == \"stored\" and (.outputs | length) == 1 and .error == {}'" % accepted["jobId"]
     )
 
-    machine.succeed("find /var/lib/media-archive/archive/db -type f | grep -F 'Replay fixture [123].mp4'")
-    machine.succeed("find /var/lib/media-archive/archive/db -type f | grep -F 'Replay fixture [123].nfo'")
+    machine.succeed("find /var/lib/url-media-archive/archive/db -type f | grep -F 'Replay fixture [123].mp4'")
+    machine.succeed("find /var/lib/url-media-archive/archive/db -type f | grep -F 'Replay fixture [123].nfo'")
     machine.succeed(f"test ! -d {temp_dir_for_job_key(accepted['jobKey'])}")
 
     no_media_payload = json.dumps({
@@ -218,7 +218,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error "
         "-H 'content-type: application/json' "
         f"--data '{no_media_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/submitDiscoveredUrl"
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
     )
     no_media_accepted = json.loads(no_media_response)
     no_media_status_payload = json.dumps({"source": "example-feed", "sourceKey": "234"})
@@ -226,7 +226,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{no_media_status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/statusBySource | jq -e '.status == \"no_media\" and .probeStatus == \"no_media\" and .error.type == \"no_media\" and (.outputs | length) == 0'",
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"no_media\" and .probeStatus == \"no_media\" and .error.type == \"no_media\" and (.outputs | length) == 0'",
         timeout=60,
     )
     machine.succeed(f"test ! -d {temp_dir_for_job_key(no_media_accepted['jobKey'])}")
@@ -239,7 +239,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error "
         "-H 'content-type: application/json' "
         f"--data '{manual_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/submitUrl"
+        "http://127.0.0.1:8080/UrlMediaArchive/submitUrl"
     )
     manual_accepted = json.loads(manual_response)
     assert manual_accepted["accepted"] is True
@@ -250,7 +250,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{manual_status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/status | jq -e '.status == \"stored\" and .canonicalUrl == \"https://example.com/media/345\" and (.outputs | length) == 1 and .error == {}'",
+        "http://127.0.0.1:8080/UrlMediaArchive/status | jq -e '.status == \"stored\" and .canonicalUrl == \"https://example.com/media/345\" and (.outputs | length) == 1 and .error == {}'",
         timeout=60,
     )
     machine.succeed(f"test ! -d {temp_dir_for_job_key(manual_accepted['jobKey'])}")
@@ -265,7 +265,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error "
         "-H 'content-type: application/json' "
         f"--data '{failure_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/submitDiscoveredUrl"
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
     )
     failure_accepted = json.loads(failure_response)
     failure_status_payload = json.dumps({"source": "example-feed", "sourceKey": "456"})
@@ -273,7 +273,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{failure_status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/statusBySource | jq -e '.status == \"terminal_failed\" and .probeStatus == \"has_media\" and .error.type == \"terminal_auth_cookie_invalid\" and (.outputs | length) == 0'",
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"terminal_failed\" and .probeStatus == \"has_media\" and .error.type == \"terminal_auth_cookie_invalid\" and (.outputs | length) == 0'",
         timeout=60,
     )
     machine.succeed(f"test ! -d {temp_dir_for_job_key(failure_accepted['jobKey'])}")
@@ -288,7 +288,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error "
         "-H 'content-type: application/json' "
         f"--data '{store_failure_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/submitDiscoveredUrl"
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
     )
     store_failure_accepted = json.loads(store_failure_response)
     store_failure_status_payload = json.dumps({"source": "example-feed", "sourceKey": "567"})
@@ -296,7 +296,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{store_failure_status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/statusBySource | jq -e '.status == \"terminal_failed\" and .probeStatus == \"has_media\" and .error.type == \"terminal_filesystem_path\" and (.outputs | length) == 0'",
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"terminal_failed\" and .probeStatus == \"has_media\" and .error.type == \"terminal_filesystem_path\" and (.outputs | length) == 0'",
         timeout=60,
     )
     machine.succeed(f"test ! -d {temp_dir_for_job_key(store_failure_accepted['jobKey'])}")
@@ -311,14 +311,14 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error "
         "-H 'content-type: application/json' "
         f"--data '{rate_limit_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/submitDiscoveredUrl"
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
     )
     rate_limit_status_payload = json.dumps({"source": "example-feed", "sourceKey": "678"})
     machine.wait_until_succeeds(
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{rate_limit_status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/statusBySource | jq -e '.status == \"failed\" and .probeStatus == \"unavailable\" and .nextRetryAt != null and .error.type == \"retryable_rate_limit\" and .error.retryable == true and .error.terminal == false and (.outputs | length) == 0'",
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"failed\" and .probeStatus == \"unavailable\" and .nextRetryAt != null and .error.type == \"retryable_rate_limit\" and .error.retryable == true and .error.terminal == false and (.outputs | length) == 0'",
         timeout=60,
     )
 
@@ -332,7 +332,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error "
         "-H 'content-type: application/json' "
         f"--data '{retry_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/submitDiscoveredUrl"
+        "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
     )
     retry_accepted = json.loads(retry_response)
     retry_status_payload = json.dumps({"source": "example-feed", "sourceKey": "789"})
@@ -340,12 +340,12 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{retry_status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/statusBySource | jq -e '.status == \"failed\" and .probeStatus == \"has_media\" and .nextRetryAt != null and .error.type == \"retryable_network_timeout\" and (.outputs | length) == 0'",
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"failed\" and .probeStatus == \"has_media\" and .nextRetryAt != null and .error.type == \"retryable_network_timeout\" and (.outputs | length) == 0'",
         timeout=60,
     )
     machine.succeed(f"test ! -d {temp_dir_for_job_key(retry_accepted['jobKey'])}")
     machine.succeed(
-        "timeout 20 psql -h /run/postgresql -U media-archive -d media-archive "
+        "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive "
         "-c \"UPDATE url_archive_jobs SET next_retry_at = now() WHERE canonical_url = 'https://example.com/media/789'\""
     )
     drain_payload = json.dumps({"limit": 10, "source": "example-feed", "statuses": ["failed"]})
@@ -353,7 +353,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 10 "
         "-H 'content-type: application/json' "
         f"--data '{drain_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/drainPending"
+        "http://127.0.0.1:8080/UrlMediaArchive/drainPending"
     )
     drain_json = json.loads(drain_response)
     assert drain_json["accepted"] >= 1
@@ -365,7 +365,7 @@ pkgs.testers.runNixOSTest {
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "
         f"--data '{retry_status_payload}' "
-        "http://127.0.0.1:8080/MediaArchive/statusBySource | jq -e '.status == \"stored\" and .attempts == 2 and (.outputs | length) == 1 and .error == {}'",
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"stored\" and .attempts == 2 and (.outputs | length) == 1 and .error == {}'",
         timeout=60,
     )
     machine.succeed(f"test ! -d {temp_dir_for_job_key(retry_accepted['jobKey'])}")

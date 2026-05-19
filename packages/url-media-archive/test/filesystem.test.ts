@@ -23,7 +23,7 @@ import {
 
 describe("archive filesystem paths", () => {
   it("keeps download temp directories under the archive temp root", () => {
-    const root = mkdtempSync(join(tmpdir(), "media-archive-root-"));
+    const root = mkdtempSync(join(tmpdir(), "url-media-archive-root-"));
 
     const tempDir = downloadTempDir(root, "pg:../../unsafe/status?123");
 
@@ -32,7 +32,7 @@ describe("archive filesystem paths", () => {
   });
 
   it("rejects archive path traversal", () => {
-    const root = mkdtempSync(join(tmpdir(), "media-archive-root-"));
+    const root = mkdtempSync(join(tmpdir(), "url-media-archive-root-"));
 
     expect(() => safeResolve(root, ["..", "outside"])).toThrow(
       "Refusing to access outside archive root",
@@ -51,7 +51,7 @@ describe("archive filesystem paths", () => {
 
 describe("cleanupArchiveFinalDir", () => {
   it("removes only one job final directory and succeeds when absent", async () => {
-    const root = mkdtempSync(join(tmpdir(), "media-archive-root-"));
+    const root = mkdtempSync(join(tmpdir(), "url-media-archive-root-"));
     const jobKey = "pg:018f6e9d-4a31-7565-982a-cb5e5f01d31f";
     const finalDir = archiveFinalDir(
       root,
@@ -72,7 +72,7 @@ describe("cleanupArchiveFinalDir", () => {
 
 describe("cleanupDownloadTempDir", () => {
   it("removes nested temp files and succeeds when target is absent", async () => {
-    const root = mkdtempSync(join(tmpdir(), "media-archive-root-"));
+    const root = mkdtempSync(join(tmpdir(), "url-media-archive-root-"));
     const jobKey = "pg:018f6e9d-4a31-7565-982a-cb5e5f01d31f";
     const tempDir = downloadTempDir(root, jobKey);
     mkdirSync(tempDir, { recursive: true });
@@ -87,8 +87,8 @@ describe("cleanupDownloadTempDir", () => {
 
 describe("storeFilesystemOutputs", () => {
   it("moves downloaded files into a stable safe archive path with sidecars", async () => {
-    const root = mkdtempSync(join(tmpdir(), "media-archive-root-"));
-    const tempDir = mkdtempSync(join(tmpdir(), "media-archive-download-"));
+    const root = mkdtempSync(join(tmpdir(), "url-media-archive-root-"));
+    const tempDir = mkdtempSync(join(tmpdir(), "url-media-archive-download-"));
     const inputPath = join(tempDir, "unsafe title.mp4");
     writeFileSync(inputPath, "media bytes");
 
@@ -132,8 +132,8 @@ describe("storeFilesystemOutputs", () => {
   });
 
   it("keeps long Unicode media filenames below filesystem byte limits", async () => {
-    const root = mkdtempSync(join(tmpdir(), "media-archive-root-"));
-    const tempDir = mkdtempSync(join(tmpdir(), "media-archive-download-"));
+    const root = mkdtempSync(join(tmpdir(), "url-media-archive-root-"));
+    const tempDir = mkdtempSync(join(tmpdir(), "url-media-archive-download-"));
     const inputPath = join(tempDir, "fixture-video-id.mp4");
     const title = "Synthetic archive title 🧪 漢字 emoji mix ".repeat(12);
     writeFileSync(inputPath, "media bytes");

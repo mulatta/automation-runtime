@@ -101,7 +101,7 @@ describe("ArchiveDatabase", () => {
         error: {},
       }),
       rows({
-        path: "/var/lib/media-archive/archive/db/2026/05/job/video.mp4",
+        path: "/var/lib/url-media-archive/archive/db/2026/05/job/video.mp4",
         sink_type: "filesystem",
         bytes: "1024",
         mime_type: "video/mp4",
@@ -118,7 +118,7 @@ describe("ArchiveDatabase", () => {
     expect(details?.error).toEqual({});
     expect(details?.outputs).toEqual([
       {
-        path: "/var/lib/media-archive/archive/db/2026/05/job/video.mp4",
+        path: "/var/lib/url-media-archive/archive/db/2026/05/job/video.mp4",
         sinkType: "filesystem",
         bytes: 1024,
         mimeType: "video/mp4",
@@ -292,7 +292,7 @@ describe("ArchiveDatabase", () => {
   it("inserts outputs idempotently before marking jobs stored", async () => {
     const outputs: ArchiveOutputInput[] = [
       {
-        path: "/var/lib/media-archive/archive/db/2026/05/123/video.mp4",
+        path: "/var/lib/url-media-archive/archive/db/2026/05/123/video.mp4",
         bytes: 1024,
         mimeType: "video/mp4",
         sha256: "abc",

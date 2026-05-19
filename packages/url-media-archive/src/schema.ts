@@ -112,17 +112,17 @@ export const ArchiveJobSnapshot = z
   .strict();
 export type ArchiveJobSnapshot = z.infer<typeof ArchiveJobSnapshot>;
 
-export const MediaJobRunRequest = z
+export const UrlMediaJobRunRequest = z
   .object({
     mode: z.literal("db"),
     job: ArchiveJobSnapshot,
   })
   .strict();
-export type MediaJobRunRequest = z.infer<typeof MediaJobRunRequest>;
+export type UrlMediaJobRunRequest = z.infer<typeof UrlMediaJobRunRequest>;
 
 export const WorkerStatus = z.object({
   status: z.literal("ok"),
-  worker: z.literal("media-archive"),
+  worker: z.literal("url-media-archive"),
   version: z.string(),
   observedAt: z.string(),
 });

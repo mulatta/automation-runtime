@@ -135,28 +135,30 @@
               };
             };
 
-          mediaArchive = mkWorker {
-            pname = "media-archive";
-            workspace = "@restate-workflows/media-archive";
-            binName = "media-archive-worker";
+          urlMediaArchive = mkWorker {
+            pname = "url-media-archive";
+            workspace = "@restate-workflows/url-media-archive";
+            binName = "url-media-archive-worker";
             mainFile = "dist/src/main.js";
             description = "Generic Restate worker for archiving URLs to filesystem storage";
           };
 
           packages = {
-            default = mediaArchive;
-            media-archive = mediaArchive;
+            default = urlMediaArchive;
+            url-media-archive = urlMediaArchive;
           };
 
-          mediaArchiveReplayTest = pkgs.callPackage ./tests/media-archive-replay.nix {
-            mediaArchivePackage = mediaArchive;
+          urlMediaArchiveReplayTest = pkgs.callPackage ./tests/url-media-archive-replay.nix {
+            urlMediaArchivePackage = urlMediaArchive;
             restatePackage = unfreePkgs.restate;
           };
 
-          mediaArchiveKeepFailedTempTest = pkgs.callPackage ./tests/media-archive-keep-failed-temp.nix {
-            mediaArchivePackage = mediaArchive;
-            restatePackage = unfreePkgs.restate;
-          };
+          urlMediaArchiveKeepFailedTempTest =
+            pkgs.callPackage ./tests/url-media-archive-keep-failed-temp.nix
+              {
+                urlMediaArchivePackage = urlMediaArchive;
+                restatePackage = unfreePkgs.restate;
+              };
 
           devShell = pkgs.mkShell {
             packages = [
@@ -170,8 +172,8 @@
           inherit
             packages
             devShell
-            mediaArchiveKeepFailedTempTest
-            mediaArchiveReplayTest
+            urlMediaArchiveKeepFailedTempTest
+            urlMediaArchiveReplayTest
             ;
         }
       );
@@ -212,8 +214,8 @@
           treefmt = treefmtEval.${system}.config.build.check self;
         }
         // lib.optionalAttrs (system == "x86_64-linux") {
-          media-archive-keep-failed-temp = perSystem.${system}.mediaArchiveKeepFailedTempTest;
-          media-archive-replay = perSystem.${system}.mediaArchiveReplayTest;
+          url-media-archive-keep-failed-temp = perSystem.${system}.urlMediaArchiveKeepFailedTempTest;
+          url-media-archive-replay = perSystem.${system}.urlMediaArchiveReplayTest;
         }
       );
 
@@ -221,7 +223,7 @@
 
       nixosModules = {
         default = ./nixosModules;
-        media-archive = ./nixosModules/media-archive.nix;
+        url-media-archive = ./nixosModules/url-media-archive.nix;
       };
     };
 }

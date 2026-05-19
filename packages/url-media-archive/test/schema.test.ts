@@ -1,13 +1,13 @@
 import {
   DrainPendingRequest,
-  MediaJobRunRequest,
+  UrlMediaJobRunRequest,
   StatusBySourceRequest,
   SubmitDiscoveredUrlRequest,
   SubmitJobRequest,
   SubmitUrlRequest,
 } from "../src/schema";
 
-describe("media-archive schemas", () => {
+describe("url-media-archive schemas", () => {
   it("parses discovered URL input from source-specific producers", () => {
     expect(
       SubmitDiscoveredUrlRequest.parse({
@@ -41,7 +41,7 @@ describe("media-archive schemas", () => {
 
   it("allows only DB-backed media job runs", () => {
     expect(() =>
-      MediaJobRunRequest.parse({
+      UrlMediaJobRunRequest.parse({
         mode: "url",
         url: "https://example.com/video",
         canonicalUrl: "https://example.com/video",

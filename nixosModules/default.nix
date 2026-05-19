@@ -1,5 +1,5 @@
 {
   imports = [
-    ./media-archive.nix
+    ./url-media-archive.nix
   ];
 }

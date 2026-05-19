@@ -5,7 +5,7 @@
   ...
 }:
 let
-  cfg = config.services.restateWorkers.media-archive;
+  cfg = config.services.restateWorkers.url-media-archive;
   dbCfg = cfg.database;
 
   localDatabaseUrl = "postgresql:///${dbCfg.name}?host=/run/postgresql&user=${dbCfg.user}";
@@ -13,28 +13,28 @@ let
   workerHealthUrl = "${endpointBaseUrl}/health";
   cookieDir = lib.optionalString (cfg.cookiePath != null) (builtins.dirOf cfg.cookiePath);
   databaseEnv = lib.optionalString (dbCfg.urlFile == null && dbCfg.createLocally) ''
-    MEDIA_ARCHIVE_DATABASE_URL=${lib.escapeShellArg localDatabaseUrl}
+    URL_MEDIA_ARCHIVE_DATABASE_URL=${lib.escapeShellArg localDatabaseUrl}
   '';
-  envFile = pkgs.writeText "media-archive-worker.env" ''
-    MEDIA_ARCHIVE_HOST=${lib.escapeShellArg cfg.host}
-    MEDIA_ARCHIVE_PORT=${toString cfg.port}
-    MEDIA_ARCHIVE_ROOT=${lib.escapeShellArg cfg.archiveRoot}
-    MEDIA_ARCHIVE_RESTATE_IDENTITY_KEYS=${lib.escapeShellArg (lib.concatStringsSep "," cfg.requestIdentity.publicKeys)}
-    MEDIA_ARCHIVE_YTDLP_BINARY=${lib.escapeShellArg (lib.getExe cfg.ytDlpPackage)}
-    MEDIA_ARCHIVE_YTDLP_PROBE_TIMEOUT_MS=${toString cfg.ytDlpProbeTimeoutMs}
-    MEDIA_ARCHIVE_YTDLP_DOWNLOAD_TIMEOUT_MS=${toString cfg.ytDlpDownloadTimeoutMs}
-    MEDIA_ARCHIVE_YTDLP_PROBE_CONCURRENCY=${toString cfg.ytDlpProbeConcurrency}
-    MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY=${toString cfg.ytDlpDownloadConcurrency}
-    MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS=${lib.boolToString cfg.keepFailedTempDirs}
+  envFile = pkgs.writeText "url-media-archive-worker.env" ''
+    URL_MEDIA_ARCHIVE_HOST=${lib.escapeShellArg cfg.host}
+    URL_MEDIA_ARCHIVE_PORT=${toString cfg.port}
+    URL_MEDIA_ARCHIVE_ROOT=${lib.escapeShellArg cfg.archiveRoot}
+    URL_MEDIA_ARCHIVE_RESTATE_IDENTITY_KEYS=${lib.escapeShellArg (lib.concatStringsSep "," cfg.requestIdentity.publicKeys)}
+    URL_MEDIA_ARCHIVE_YTDLP_BINARY=${lib.escapeShellArg (lib.getExe cfg.ytDlpPackage)}
+    URL_MEDIA_ARCHIVE_YTDLP_PROBE_TIMEOUT_MS=${toString cfg.ytDlpProbeTimeoutMs}
+    URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_TIMEOUT_MS=${toString cfg.ytDlpDownloadTimeoutMs}
+    URL_MEDIA_ARCHIVE_YTDLP_PROBE_CONCURRENCY=${toString cfg.ytDlpProbeConcurrency}
+    URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY=${toString cfg.ytDlpDownloadConcurrency}
+    URL_MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS=${lib.boolToString cfg.keepFailedTempDirs}
     ${databaseEnv}
   '';
   workerEnvironment =
     cfg.extraEnvironment
     // lib.optionalAttrs (cfg.cookiePath != null) {
-      MEDIA_ARCHIVE_COOKIE_PATH = cfg.cookiePath;
+      URL_MEDIA_ARCHIVE_COOKIE_PATH = cfg.cookiePath;
     }
     // lib.optionalAttrs (dbCfg.urlFile != null) {
-      MEDIA_ARCHIVE_DATABASE_URL_FILE = "%d/database-url";
+      URL_MEDIA_ARCHIVE_DATABASE_URL_FILE = "%d/database-url";
     };
   databaseCredential = lib.optionals (dbCfg.urlFile != null) [
     "database-url:${toString dbCfg.urlFile}"
@@ -44,27 +44,27 @@ let
     "postgresql-setup.service"
   ];
   migrationUnits = lib.optionals cfg.runMigrations [
-    "media-archive-worker-migrate.service"
+    "url-media-archive-worker-migrate.service"
   ];
 in
 {
-  options.services.restateWorkers.media-archive = {
+  options.services.restateWorkers.url-media-archive = {
     enable = lib.mkEnableOption "generic URL media archive Restate worker";
 
     package = lib.mkOption {
       type = lib.types.package;
-      description = "Package providing the media-archive-worker executable.";
+      description = "Package providing the url-media-archive-worker executable.";
     };
 
     user = lib.mkOption {
       type = lib.types.str;
-      default = "media-archive";
+      default = "url-media-archive";
       description = "User that runs the worker.";
     };
 
     group = lib.mkOption {
       type = lib.types.str;
-      default = "media-archive";
+      default = "url-media-archive";
       description = "Group that runs the worker.";
     };
 
@@ -107,7 +107,7 @@ in
     runMigrations = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "Run the media archive database migration oneshot before starting the worker.";
+      description = "Run the URL media archive database migration oneshot before starting the worker.";
     };
 
     requestIdentity.publicKeys = lib.mkOption {
@@ -125,13 +125,13 @@ in
 
       name = lib.mkOption {
         type = lib.types.str;
-        default = "media-archive";
+        default = "url-media-archive";
         description = "Local PostgreSQL database name for archive catalog tables. Must match database.user when createLocally is enabled because local peer auth is used.";
       };
 
       user = lib.mkOption {
         type = lib.types.str;
-        default = "media-archive";
+        default = "url-media-archive";
         description = "Local PostgreSQL role that owns the archive database.";
       };
 
@@ -182,13 +182,13 @@ in
     cookiePath = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      example = "/var/lib/media-archive/cookies/browser.netscape.txt";
+      example = "/var/lib/url-media-archive/cookies/browser.netscape.txt";
       description = "Optional yt-dlp Netscape cookie jar path. The module only passes this path to the worker and grants systemd write access to its directory; create and refresh the file out of band.";
     };
 
     archiveRoot = lib.mkOption {
       type = lib.types.str;
-      default = "/var/lib/media-archive/archive";
+      default = "/var/lib/url-media-archive/archive";
       description = "Filesystem root for archived media.";
     };
 
@@ -203,7 +203,7 @@ in
     assertions = [
       {
         assertion = !dbCfg.createLocally || dbCfg.name == dbCfg.user;
-        message = "services.restateWorkers.media-archive.database.name must match database.user when createLocally is enabled.";
+        message = "services.restateWorkers.url-media-archive.database.name must match database.user when createLocally is enabled.";
       }
     ];
 
@@ -228,8 +228,8 @@ in
       "d ${cfg.archiveRoot} 0750 ${cfg.user} ${cfg.group} -"
     ];
 
-    systemd.services.media-archive-worker-migrate = lib.mkIf cfg.runMigrations {
-      description = "Migrate media archive database";
+    systemd.services.url-media-archive-worker-migrate = lib.mkIf cfg.runMigrations {
+      description = "Migrate URL media archive database";
       after = localDatabaseUnits;
       requires = localDatabaseUnits;
 
@@ -250,8 +250,8 @@ in
       };
     };
 
-    systemd.services.media-archive-worker = {
-      description = "Media archive Restate worker";
+    systemd.services.url-media-archive-worker = {
+      description = "URL media archive Restate worker";
       wantedBy = [ "multi-user.target" ];
       after = [
         "network-online.target"
@@ -272,8 +272,8 @@ in
         Group = cfg.group;
         SupplementaryGroups = cfg.supplementaryGroups;
         DynamicUser = false;
-        StateDirectory = "media-archive-worker";
-        CacheDirectory = "media-archive-worker";
+        StateDirectory = "url-media-archive-worker";
+        CacheDirectory = "url-media-archive-worker";
         ReadWritePaths = [ cfg.archiveRoot ] ++ lib.optionals (cfg.cookiePath != null) [ cookieDir ];
         Restart = "always";
         RestartSec = "5s";
@@ -304,16 +304,16 @@ in
       };
     };
 
-    systemd.services.media-archive-worker-register = lib.mkIf cfg.registerDeployment {
-      description = "Register media archive worker with Restate";
+    systemd.services.url-media-archive-worker-register = lib.mkIf cfg.registerDeployment {
+      description = "Register URL media archive worker with Restate";
       wantedBy = [ "multi-user.target" ];
       after = [
         "restate.service"
-        "media-archive-worker.service"
+        "url-media-archive-worker.service"
       ];
       wants = [
         "restate.service"
-        "media-archive-worker.service"
+        "url-media-archive-worker.service"
       ];
 
       path = [ pkgs.curl ];
@@ -327,7 +327,7 @@ in
             break
           fi
           if [ "$attempt" -eq 60 ]; then
-            echo "media archive worker endpoint did not become healthy: ${workerHealthUrl}" >&2
+            echo "URL media archive worker endpoint did not become healthy: ${workerHealthUrl}" >&2
             exit 1
           fi
           sleep 1

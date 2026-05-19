@@ -2,41 +2,41 @@
 
 Reusable Restate workflows and workers.
 
-## Media archive worker
+## URL media archive worker
 
-`packages/media-archive` is a generic URL-to-filesystem archive worker:
+`packages/url-media-archive` is a generic URL-to-filesystem archive worker:
 
 ```text
 n8n        = URL discovery and trigger
 Postgres   = generic URL archive catalog
 Restate    = durable archive execution
-filesystem = final sink under /var/lib/media-archive/archive
+filesystem = final sink under /var/lib/url-media-archive/archive
 ```
 
-Discovery callers submit URLs to `MediaArchive.submitDiscoveredUrl`. Restate canonicalizes and upserts catalog rows, then sends work to `MediaJob/{jobKey}`. `yt-dlp` probes and downloads media.
+Discovery callers submit URLs to `UrlMediaArchive.submitDiscoveredUrl`. Restate canonicalizes and upserts catalog rows, then sends work to `UrlMediaJob/{jobKey}`. `yt-dlp` probes and downloads media.
 
 Final files are stored under:
 
 ```text
-/var/lib/media-archive/archive/db/YYYY/MM/<job-id>/...
+/var/lib/url-media-archive/archive/db/YYYY/MM/<job-id>/...
 ```
 
 Temporary downloads use:
 
 ```text
-/var/lib/media-archive/archive/.tmp/<safe-job-key>
+/var/lib/url-media-archive/archive/.tmp/<safe-job-key>
 ```
 
-Successful jobs always clean temp directories. Failed jobs clean temp directories by default; set `MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS=true` or NixOS `keepFailedTempDirs = true` to preserve failed temp dirs for debugging. Store failures also best-effort clean the current job final directory so partial moved files do not become catalog orphans.
+Successful jobs always clean temp directories. Failed jobs clean temp directories by default; set `URL_MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS=true` or NixOS `keepFailedTempDirs = true` to preserve failed temp dirs for debugging. Store failures also best-effort clean the current job final directory so partial moved files do not become catalog orphans.
 
 ## Restate services
 
 ```text
-MediaArchive      submitDiscoveredUrl/submitJob/submitUrl/drainPending/status/statusBySource
-MediaJob/{key}    Virtual Object that executes one archive job and caches runtime state
+UrlMediaArchive      submitDiscoveredUrl/submitJob/submitUrl/drainPending/status/statusBySource
+UrlMediaJob/{key}    Virtual Object that executes one archive job and caches runtime state
 ```
 
-DB-backed jobs are the only submission path. `submitUrl` records manual URL submissions in the archive catalog before dispatching `MediaJob/{jobKey}`. Status APIs return catalog status, last error details, and filesystem outputs when available. `drainPending` returns accepted jobs plus due/not-due queue summary counts.
+DB-backed jobs are the only submission path. `submitUrl` records manual URL submissions in the archive catalog before dispatching `UrlMediaJob/{jobKey}`. Status APIs return catalog status, last error details, and filesystem outputs when available. `drainPending` returns accepted jobs plus due/not-due queue summary counts.
 
 ## API examples
 
@@ -51,7 +51,7 @@ curl --fail --silent --show-error \
     "url": "https://example.com/media/12345",
     "metadata": {"author": "example-user"}
   }' \
-  http://127.0.0.1:8080/MediaArchive/submitDiscoveredUrl
+  http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl
 ```
 
 Response:
@@ -71,7 +71,7 @@ Submit a manual URL without source metadata:
 curl --fail --silent --show-error \
   -H 'content-type: application/json' \
   --data '{"url":"https://example.com/video"}' \
-  http://127.0.0.1:8080/MediaArchive/submitUrl
+  http://127.0.0.1:8080/UrlMediaArchive/submitUrl
 ```
 
 Lookup status by source:
@@ -80,7 +80,7 @@ Lookup status by source:
 curl --fail --silent --show-error \
   -H 'content-type: application/json' \
   --data '{"source":"example-feed","sourceKey":"item-12345"}' \
-  http://127.0.0.1:8080/MediaArchive/statusBySource
+  http://127.0.0.1:8080/UrlMediaArchive/statusBySource
 ```
 
 Status response includes catalog fields, last error, and stored outputs:
@@ -98,7 +98,7 @@ Status response includes catalog fields, last error, and stored outputs:
   "outputs": [
     {
       "sinkType": "filesystem",
-      "path": "/var/lib/media-archive/archive/db/2026/05/018f6e9d-4a31-7565-982a-cb5e5f01d31f/video.mp4",
+      "path": "/var/lib/url-media-archive/archive/db/2026/05/018f6e9d-4a31-7565-982a-cb5e5f01d31f/video.mp4",
       "bytes": 1024,
       "mimeType": "video/mp4",
       "sha256": "...",
@@ -114,15 +114,15 @@ Lookup by canonicalized URL or DB-backed job key:
 curl --fail --silent --show-error \
   -H 'content-type: application/json' \
   --data '{"url":"https://example.com/media/12345?utm_source=ignored"}' \
-  http://127.0.0.1:8080/MediaArchive/status
+  http://127.0.0.1:8080/UrlMediaArchive/status
 
 curl --fail --silent --show-error \
   -H 'content-type: application/json' \
   --data '{"jobKey":"pg:018f6e9d-4a31-7565-982a-cb5e5f01d31f"}' \
-  http://127.0.0.1:8080/MediaArchive/status
+  http://127.0.0.1:8080/UrlMediaArchive/status
 ```
 
-`pg:<uuid>` job keys resolve through the durable catalog. Other job key formats return only runtime `MediaJob` object state.
+`pg:<uuid>` job keys resolve through the durable catalog. Other job key formats return only runtime `UrlMediaJob` object state.
 
 Drain due pending/retryable jobs:
 
@@ -130,7 +130,7 @@ Drain due pending/retryable jobs:
 curl --fail --silent --show-error \
   -H 'content-type: application/json' \
   --data '{"limit":25,"source":"example-feed","statuses":["pending","failed"]}' \
-  http://127.0.0.1:8080/MediaArchive/drainPending
+  http://127.0.0.1:8080/UrlMediaArchive/drainPending
 ```
 
 Drain response:
@@ -171,40 +171,40 @@ rate limit:                  30m -> 2h -> 12h -> 24h
 Key environment variables:
 
 ```text
-MEDIA_ARCHIVE_HOST
-MEDIA_ARCHIVE_PORT
-MEDIA_ARCHIVE_ROOT
-MEDIA_ARCHIVE_RESTATE_IDENTITY_KEYS
-MEDIA_ARCHIVE_DATABASE_URL / MEDIA_ARCHIVE_DATABASE_URL_FILE
-MEDIA_ARCHIVE_COOKIE_PATH
-MEDIA_ARCHIVE_YTDLP_BINARY
-MEDIA_ARCHIVE_YTDLP_PROBE_TIMEOUT_MS
-MEDIA_ARCHIVE_YTDLP_DOWNLOAD_TIMEOUT_MS
-MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS
+URL_MEDIA_ARCHIVE_HOST
+URL_MEDIA_ARCHIVE_PORT
+URL_MEDIA_ARCHIVE_ROOT
+URL_MEDIA_ARCHIVE_RESTATE_IDENTITY_KEYS
+URL_MEDIA_ARCHIVE_DATABASE_URL / URL_MEDIA_ARCHIVE_DATABASE_URL_FILE
+URL_MEDIA_ARCHIVE_COOKIE_PATH
+URL_MEDIA_ARCHIVE_YTDLP_BINARY
+URL_MEDIA_ARCHIVE_YTDLP_PROBE_TIMEOUT_MS
+URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_TIMEOUT_MS
+URL_MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS
 ```
 
-NixOS module options live under `services.restateWorkers.media-archive`:
+NixOS module options live under `services.restateWorkers.url-media-archive`:
 
 ```nix
 {
   enable = true;
-  package = self.packages.${pkgs.system}.media-archive;
+  package = self.packages.${pkgs.system}.url-media-archive;
   host = "127.0.0.1";
   restateAdminUrl = "http://127.0.0.1:9070";
   endpointUrl = "http://127.0.0.1:9080";
-  archiveRoot = "/var/lib/media-archive/archive";
+  archiveRoot = "/var/lib/url-media-archive/archive";
   keepFailedTempDirs = false;
 
   requestIdentity.publicKeys = [
     "publickeyv1_..."
   ];
 
-  cookiePath = "/var/lib/media-archive/cookies/browser.netscape.txt";
+  cookiePath = "/var/lib/url-media-archive/cookies/browser.netscape.txt";
 
   database = {
     createLocally = true;
-    name = "media-archive";
-    user = "media-archive";
+    name = "url-media-archive";
+    user = "url-media-archive";
     urlFile = null;
   };
 }
@@ -225,12 +225,12 @@ npm run build
 Handler logic changes require replay coverage. This repo uses NixOS replay tests with Restate worker inactivity timeout set to zero.
 
 ```bash
-nix build .#checks.x86_64-linux.media-archive-replay
-nix build .#checks.x86_64-linux.media-archive-keep-failed-temp
+nix build .#checks.x86_64-linux.url-media-archive-replay
+nix build .#checks.x86_64-linux.url-media-archive-keep-failed-temp
 ```
 
 Package build:
 
 ```bash
-nix build .#packages.aarch64-darwin.media-archive
+nix build .#packages.aarch64-darwin.url-media-archive
 ```

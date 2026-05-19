@@ -18,7 +18,7 @@ import type { YtDlpDownloadResult, YtDlpProbeResult } from "./ytdlp";
 import { canonicalizeUrl, jobIdFromJobKey, jobKeyForJobId } from "./ids";
 import {
   DrainPendingRequest,
-  MediaJobRunRequest,
+  UrlMediaJobRunRequest,
   StatusBySourceRequest,
   StatusRequest,
   SubmitDiscoveredUrlRequest,
@@ -30,7 +30,7 @@ import {
 import { assertSafeArchiveUrl } from "./urlSafety";
 
 const WORKER_VERSION = "0.1.0";
-const MEDIA_JOB_SERVICE = "MediaJob";
+const URL_MEDIA_JOB_SERVICE = "UrlMediaJob";
 const RUN_METHOD = "run";
 
 type MediaProber = {
@@ -65,7 +65,7 @@ type FinalDirCleaner = {
   ): Promise<void>;
 };
 
-type MediaArchiveDeps = {
+type UrlMediaArchiveDeps = {
   db?: ArchiveStore;
   prober?: MediaProber;
   downloader?: MediaDownloader;
@@ -97,7 +97,7 @@ type ArchiveMediaResult =
       finalDirObservedAt?: string;
     };
 
-type MediaJobState = {
+type UrlMediaJobState = {
   jobKey: string;
   mode: "db" | "url";
   url: string;
@@ -118,9 +118,9 @@ const COMPLETED_OR_TERMINAL = new Set([
   "skipped",
 ]);
 
-export function createMediaArchive(deps: MediaArchiveDeps = {}) {
+export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
   return restate.service({
-    name: "MediaArchive",
+    name: "UrlMediaArchive",
     handlers: {
       submitDiscoveredUrl: async (
         ctx: restate.Context,
@@ -139,14 +139,14 @@ export function createMediaArchive(deps: MediaArchiveDeps = {}) {
         );
         const jobKey = jobKeyForJobId(upserted.job.id);
 
-        sendMediaJob(
+        sendUrlMediaJob(
           ctx,
           jobKey,
           {
             mode: "db",
             job: toJobSnapshot(upserted.job),
           },
-          mediaJobRunIdempotencyKey(jobKey, upserted.job),
+          urlMediaJobRunIdempotencyKey(jobKey, upserted.job),
         );
 
         return {
@@ -176,14 +176,14 @@ export function createMediaArchive(deps: MediaArchiveDeps = {}) {
         }
 
         const jobKey = jobKeyForJobId(job.id);
-        sendMediaJob(
+        sendUrlMediaJob(
           ctx,
           jobKey,
           {
             mode: "db",
             job: toJobSnapshot(job),
           },
-          mediaJobRunIdempotencyKey(jobKey, job),
+          urlMediaJobRunIdempotencyKey(jobKey, job),
         );
 
         return { accepted: true, jobKey, jobId: job.id };
@@ -209,14 +209,14 @@ export function createMediaArchive(deps: MediaArchiveDeps = {}) {
         );
         const jobKey = jobKeyForJobId(upserted.job.id);
 
-        sendMediaJob(
+        sendUrlMediaJob(
           ctx,
           jobKey,
           {
             mode: "db",
             job: toJobSnapshot(upserted.job),
           },
-          mediaJobRunIdempotencyKey(jobKey, upserted.job),
+          urlMediaJobRunIdempotencyKey(jobKey, upserted.job),
         );
 
         return {
@@ -242,14 +242,14 @@ export function createMediaArchive(deps: MediaArchiveDeps = {}) {
         const jobKeys: string[] = [];
         for (const job of jobs) {
           const jobKey = jobKeyForJobId(job.id);
-          sendMediaJob(
+          sendUrlMediaJob(
             ctx,
             jobKey,
             {
               mode: "db",
               job: toJobSnapshot(job),
             },
-            mediaJobRunIdempotencyKey(jobKey, job),
+            urlMediaJobRunIdempotencyKey(jobKey, job),
           );
           jobKeys.push(jobKey);
         }
@@ -264,7 +264,9 @@ export function createMediaArchive(deps: MediaArchiveDeps = {}) {
       status: async (
         ctx: restate.Context,
         input: unknown,
-      ): Promise<WorkerStatus | ArchiveJobDetails | MediaJobState | null> => {
+      ): Promise<
+        WorkerStatus | ArchiveJobDetails | UrlMediaJobState | null
+      > => {
         if (input === undefined || input === null) {
           return workerStatus(ctx);
         }
@@ -283,8 +285,8 @@ export function createMediaArchive(deps: MediaArchiveDeps = {}) {
               db.getArchiveJobDetails(jobId),
             );
           }
-          return await ctx.genericCall<undefined, MediaJobState | null>({
-            service: MEDIA_JOB_SERVICE,
+          return await ctx.genericCall<undefined, UrlMediaJobState | null>({
+            service: URL_MEDIA_JOB_SERVICE,
             method: "status",
             key: request.jobKey,
             parameter: undefined,
@@ -316,16 +318,16 @@ export function createMediaArchive(deps: MediaArchiveDeps = {}) {
   });
 }
 
-export function createMediaJob(deps: MediaArchiveDeps = {}) {
+export function createUrlMediaJob(deps: UrlMediaArchiveDeps = {}) {
   return restate.object({
-    name: MEDIA_JOB_SERVICE,
+    name: URL_MEDIA_JOB_SERVICE,
     handlers: {
       run: async (
         ctx: restate.ObjectContext,
         input: unknown,
-      ): Promise<MediaJobState> => {
-        const request = MediaJobRunRequest.parse(input);
-        const existing = await ctx.get<MediaJobState>("state");
+      ): Promise<UrlMediaJobState> => {
+        const request = UrlMediaJobRunRequest.parse(input);
+        const existing = await ctx.get<UrlMediaJobState>("state");
         if (existing && COMPLETED_OR_TERMINAL.has(existing.status)) {
           return existing;
         }
@@ -358,24 +360,24 @@ export function createMediaJob(deps: MediaArchiveDeps = {}) {
       status: restate.handlers.object.shared(
         async (
           ctx: restate.ObjectSharedContext,
-        ): Promise<MediaJobState | null> => {
-          return await ctx.get<MediaJobState>("state");
+        ): Promise<UrlMediaJobState | null> => {
+          return await ctx.get<UrlMediaJobState>("state");
         },
       ),
     },
   });
 }
 
-export const mediaArchive = createMediaArchive();
-export const mediaJob = createMediaJob();
+export const urlMediaArchive = createUrlMediaArchive();
+export const urlMediaJob = createUrlMediaJob();
 
-export type MediaArchive = ReturnType<typeof createMediaArchive>;
-export type MediaJob = ReturnType<typeof createMediaJob>;
+export type UrlMediaArchive = ReturnType<typeof createUrlMediaArchive>;
+export type UrlMediaJob = ReturnType<typeof createUrlMediaJob>;
 
-function requireDatabase(deps: MediaArchiveDeps): ArchiveStore {
+function requireDatabase(deps: UrlMediaArchiveDeps): ArchiveStore {
   if (!deps.db) {
     throw new restate.TerminalError(
-      "Media archive database is not configured",
+      "URL media archive database is not configured",
       {
         errorCode: 500,
       },
@@ -384,14 +386,14 @@ function requireDatabase(deps: MediaArchiveDeps): ArchiveStore {
   return deps.db;
 }
 
-function sendMediaJob(
+function sendUrlMediaJob(
   ctx: restate.Context,
   jobKey: string,
   request: unknown,
   idempotencyKey = jobKey,
 ): void {
   ctx.genericSend({
-    service: MEDIA_JOB_SERVICE,
+    service: URL_MEDIA_JOB_SERVICE,
     method: RUN_METHOD,
     key: jobKey,
     parameter: request,
@@ -400,7 +402,7 @@ function sendMediaJob(
   });
 }
 
-function mediaJobRunIdempotencyKey(jobKey: string, job: ArchiveJob): string {
+function urlMediaJobRunIdempotencyKey(jobKey: string, job: ArchiveJob): string {
   return `${jobKey}:attempt-${job.attempts}`;
 }
 
@@ -418,7 +420,7 @@ function toJobSnapshot(job: ArchiveJob): ArchiveJobSnapshot {
 async function workerStatus(ctx: restate.Context): Promise<WorkerStatus> {
   return {
     status: "ok",
-    worker: "media-archive",
+    worker: "url-media-archive",
     version: WORKER_VERSION,
     observedAt: await ctx.date.toJSON(),
   };
@@ -427,7 +429,7 @@ async function workerStatus(ctx: restate.Context): Promise<WorkerStatus> {
 async function stateFromJob(
   ctx: restate.ObjectContext,
   job: ArchiveJob,
-): Promise<MediaJobState> {
+): Promise<UrlMediaJobState> {
   return {
     jobKey: ctx.key,
     mode: "db",
@@ -442,10 +444,10 @@ async function stateFromJob(
 
 async function probeDbJob(
   ctx: restate.ObjectContext,
-  deps: MediaArchiveDeps,
+  deps: UrlMediaArchiveDeps,
   db: ArchiveStore,
   job: ArchiveJob,
-): Promise<MediaJobState> {
+): Promise<UrlMediaJobState> {
   const prober = deps.prober;
   if (!prober) {
     return await stateFromJob(ctx, job);
@@ -506,7 +508,7 @@ async function probeDbJob(
 
 async function archiveDownloadedMedia(
   ctx: restate.ObjectContext,
-  deps: MediaArchiveDeps,
+  deps: UrlMediaArchiveDeps,
   input: {
     mode: "db" | "url";
     url: string;
@@ -565,7 +567,7 @@ async function archiveDownloadedMedia(
 
 async function cleanupFailureTempDirIfNeeded(
   ctx: restate.ObjectContext,
-  deps: MediaArchiveDeps,
+  deps: UrlMediaArchiveDeps,
 ): Promise<void> {
   if (deps.keepFailedTempDirs) return;
   await cleanupTempDirBestEffort(ctx, deps);
@@ -573,7 +575,7 @@ async function cleanupFailureTempDirIfNeeded(
 
 async function cleanupFinalDirIfStoreFailed(
   ctx: restate.ObjectContext,
-  deps: MediaArchiveDeps,
+  deps: UrlMediaArchiveDeps,
   archive: Extract<ArchiveMediaResult, { failure: ArchiveFailure }>,
 ): Promise<void> {
   if (archive.failure.phase !== "store" || !archive.finalDirObservedAt) return;
@@ -582,7 +584,7 @@ async function cleanupFinalDirIfStoreFailed(
 
 async function cleanupFinalDirBestEffort(
   ctx: restate.ObjectContext,
-  deps: MediaArchiveDeps,
+  deps: UrlMediaArchiveDeps,
   observedAt: string,
 ): Promise<void> {
   const cleaner = deps.cleanupFinalDir;
@@ -601,7 +603,7 @@ async function cleanupFinalDirBestEffort(
 
 async function cleanupTempDirBestEffort(
   ctx: restate.ObjectContext,
-  deps: MediaArchiveDeps,
+  deps: UrlMediaArchiveDeps,
 ): Promise<void> {
   const cleaner = deps.cleanupTempDir;
   const archiveRoot = deps.archiveRoot;
@@ -689,7 +691,7 @@ async function stateFromJobAndProbe(
   ctx: restate.ObjectContext,
   job: ArchiveJob,
   probe: YtDlpProbeResult,
-): Promise<MediaJobState> {
+): Promise<UrlMediaJobState> {
   return {
     jobKey: ctx.key,
     mode: "db",

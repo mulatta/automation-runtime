@@ -21,52 +21,53 @@ export function readRuntimeConfig(
   env: RuntimeEnv = process.env,
 ): RuntimeConfig {
   return {
-    host: nonEmpty(env.MEDIA_ARCHIVE_HOST) ?? "127.0.0.1",
-    port: parsePort(env.MEDIA_ARCHIVE_PORT ?? env.PORT, 9080),
+    host: nonEmpty(env.URL_MEDIA_ARCHIVE_HOST) ?? "127.0.0.1",
+    port: parsePort(env.URL_MEDIA_ARCHIVE_PORT ?? env.PORT, 9080),
     archiveRoot:
-      env.MEDIA_ARCHIVE_ROOT?.trim() || "/var/lib/media-archive/archive",
+      env.URL_MEDIA_ARCHIVE_ROOT?.trim() ||
+      "/var/lib/url-media-archive/archive",
     cookiePath: readCookiePath(env),
     databaseUrl: readDatabaseUrl(env),
     restateIdentityKeys: parseIdentityKeys(
-      env.MEDIA_ARCHIVE_RESTATE_IDENTITY_KEYS,
+      env.URL_MEDIA_ARCHIVE_RESTATE_IDENTITY_KEYS,
     ),
-    ytDlpBinary: nonEmpty(env.MEDIA_ARCHIVE_YTDLP_BINARY) ?? "yt-dlp",
+    ytDlpBinary: nonEmpty(env.URL_MEDIA_ARCHIVE_YTDLP_BINARY) ?? "yt-dlp",
     ytDlpProbeTimeoutMs: parsePositiveInteger(
-      env.MEDIA_ARCHIVE_YTDLP_PROBE_TIMEOUT_MS,
+      env.URL_MEDIA_ARCHIVE_YTDLP_PROBE_TIMEOUT_MS,
       120_000,
     ),
     ytDlpDownloadTimeoutMs: parsePositiveInteger(
-      env.MEDIA_ARCHIVE_YTDLP_DOWNLOAD_TIMEOUT_MS,
+      env.URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_TIMEOUT_MS,
       900_000,
     ),
     ytDlpProbeConcurrency: parsePositiveInteger(
-      env.MEDIA_ARCHIVE_YTDLP_PROBE_CONCURRENCY,
+      env.URL_MEDIA_ARCHIVE_YTDLP_PROBE_CONCURRENCY,
       2,
     ),
     ytDlpDownloadConcurrency: parsePositiveInteger(
-      env.MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY,
+      env.URL_MEDIA_ARCHIVE_YTDLP_DOWNLOAD_CONCURRENCY,
       2,
     ),
     keepFailedTempDirs: parseBoolean(
-      env.MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS,
+      env.URL_MEDIA_ARCHIVE_KEEP_FAILED_TEMP_DIRS,
       false,
     ),
   };
 }
 
 function readDatabaseUrl(env: RuntimeEnv): string | undefined {
-  const inline = nonEmpty(env.MEDIA_ARCHIVE_DATABASE_URL);
+  const inline = nonEmpty(env.URL_MEDIA_ARCHIVE_DATABASE_URL);
   if (inline) return inline;
 
-  const file = nonEmpty(env.MEDIA_ARCHIVE_DATABASE_URL_FILE);
+  const file = nonEmpty(env.URL_MEDIA_ARCHIVE_DATABASE_URL_FILE);
   if (!file) return undefined;
   return readFileSync(file, "utf8").trim();
 }
 
 function readCookiePath(env: RuntimeEnv): string | undefined {
   return (
-    nonEmpty(env.MEDIA_ARCHIVE_COOKIE_PATH) ??
-    nonEmpty(env.MEDIA_ARCHIVE_COOKIE_FILE)
+    nonEmpty(env.URL_MEDIA_ARCHIVE_COOKIE_PATH) ??
+    nonEmpty(env.URL_MEDIA_ARCHIVE_COOKIE_FILE)
   );
 }
 

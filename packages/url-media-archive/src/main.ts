@@ -6,7 +6,7 @@ import { Pool } from "pg";
 import { readRuntimeConfig } from "./config";
 import { ArchiveDatabase } from "./db";
 import { initialMigrationSql } from "./migrations";
-import { createMediaArchive, createMediaJob } from "./service";
+import { createUrlMediaArchive, createUrlMediaJob } from "./service";
 import {
   cleanupArchiveFinalDir,
   cleanupDownloadTempDir,
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "worker") {
-    throw new Error(`Unknown media-archive command: ${command}`);
+    throw new Error(`Unknown url-media-archive command: ${command}`);
   }
 
   const config = readRuntimeConfig();
@@ -40,8 +40,8 @@ async function main(): Promise<void> {
   });
   const handler = restate.createEndpointHandler({
     services: [
-      createMediaArchive({ db }),
-      createMediaJob({
+      createUrlMediaArchive({ db }),
+      createUrlMediaJob({
         db,
         prober: ytdlp,
         downloader: ytdlp,
@@ -69,7 +69,7 @@ async function migrate(): Promise<void> {
   const config = readRuntimeConfig();
   if (!config.databaseUrl) {
     throw new Error(
-      "MEDIA_ARCHIVE_DATABASE_URL or MEDIA_ARCHIVE_DATABASE_URL_FILE is required for migrations",
+      "URL_MEDIA_ARCHIVE_DATABASE_URL or URL_MEDIA_ARCHIVE_DATABASE_URL_FILE is required for migrations",
     );
   }
 
