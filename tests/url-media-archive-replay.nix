@@ -46,6 +46,22 @@ let
         cat <<'JSON'
     {"id":"891","title":"Rate limited no video fixture","extractor":"test","webpage_url":"https://example.com/media/891","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
     JSON
+      elif [[ " $* " == *"media/910"* ]]; then
+        cat <<'JSON'
+    {"id":"910","title":"Same host fixture 910","extractor":"test","webpage_url":"https://example.com/media/910","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
+    JSON
+      elif [[ " $* " == *"media/911"* ]]; then
+        cat <<'JSON'
+    {"id":"911","title":"Same host fixture 911","extractor":"test","webpage_url":"https://example.com/media/911","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
+    JSON
+      elif [[ " $* " == *"media/920"* ]]; then
+        cat <<'JSON'
+    {"id":"920","title":"Different host fixture 920","extractor":"test","webpage_url":"https://other.example.com/media/920","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
+    JSON
+      elif [[ " $* " == *"media/921"* ]]; then
+        cat <<'JSON'
+    {"id":"921","title":"Different host fixture 921","extractor":"test","webpage_url":"https://third.example.com/media/921","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
+    JSON
       else
         cat <<'JSON'
     {"id":"123","title":"Replay fixture","extractor":"test","webpage_url":"https://example.com/media/123","formats":[{"format_id":"http","url":"https://cdn.example.invalid/video.mp4"}]}
@@ -96,6 +112,39 @@ let
       echo "WARNING: [example] Rate-limit exceeded; falling back to syndication endpoint" >&2
       echo "ERROR: [example] 891: No video could be found in this item" >&2
       exit 1
+    fi
+
+    if [[ "$download_args" == *"media/910"* || "$download_args" == *"media/911"* ]]; then
+      if ! mkdir /tmp/same-host-download.lock 2>/dev/null; then
+        touch /tmp/same-host-overlap
+      else
+        trap 'rmdir /tmp/same-host-download.lock' EXIT
+      fi
+      sleep 1
+    fi
+
+    if [[ "$download_args" == *"media/920"* ]]; then
+      touch /tmp/different-host-920.started
+      for _ in $(seq 1 50); do
+        [[ -e /tmp/different-host-921.started ]] && break
+        sleep 0.1
+      done
+      if [[ ! -e /tmp/different-host-921.started ]]; then
+        echo "ERROR: different-host peer did not run concurrently" >&2
+        exit 1
+      fi
+    fi
+
+    if [[ "$download_args" == *"media/921"* ]]; then
+      touch /tmp/different-host-921.started
+      for _ in $(seq 1 50); do
+        [[ -e /tmp/different-host-920.started ]] && break
+        sleep 0.1
+      done
+      if [[ ! -e /tmp/different-host-920.started ]]; then
+        echo "ERROR: different-host peer did not run concurrently" >&2
+        exit 1
+      fi
     fi
 
     printf 'media bytes\n' > "$target_dir/replay-fixture.mp4"
@@ -244,7 +293,7 @@ pkgs.testers.runNixOSTest {
         "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive -qAt "
         "-c \"WITH inserted AS ("
         "INSERT INTO url_archive_jobs (url, canonical_url, status, next_retry_at) "
-        "VALUES ('https://example.com/media/901', 'https://example.com/media/901', 'failed', now() + interval '2 seconds') "
+        "VALUES ('https://example.com/media/901', 'https://example.com/media/901', 'failed', now() + interval '3 seconds') "
         "RETURNING id) SELECT id FROM inserted\""
     ).strip()
     workflow_payload = json.dumps({"jobId": workflow_job_id, "maxAttemptsPerInvocation": 2})
@@ -255,6 +304,14 @@ pkgs.testers.runNixOSTest {
         f"http://127.0.0.1:8080/UrlMediaWorkflow/{workflow_job_id}/run/send"
     )
     machine.wait_until_succeeds(
+        "journalctl -u url-media-archive-worker.service --no-pager "
+        f"| grep -F 'UrlMediaWorkflow/{workflow_job_id}/run' | grep -F 'Invocation suspended'",
+        timeout=20,
+    )
+    machine.succeed("systemctl restart url-media-archive-worker.service")
+    machine.wait_for_unit("url-media-archive-worker.service")
+    machine.wait_for_open_port(9080)
+    machine.wait_until_succeeds(
         "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive -At "
         f"-c \"SELECT status || ':' || attempts FROM url_archive_jobs WHERE id = '{workflow_job_id}'\" "
         "| grep '^stored:1$'",
@@ -264,6 +321,84 @@ pkgs.testers.runNixOSTest {
         "journalctl -u url-media-archive-worker.service --no-pager "
         "| grep -F 'UrlMediaArchiveHostLeaseQueue/example.com/acquire'"
     )
+
+    terminal_workflow_job_id = machine.succeed(
+        "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive -qAt "
+        "-c \"WITH inserted AS ("
+        "INSERT INTO url_archive_jobs (url, canonical_url, status, probe_status) "
+        "VALUES ('https://terminal.example.com/media/930', 'https://terminal.example.com/media/930', 'no_media', 'no_media') "
+        "RETURNING id) SELECT id FROM inserted\""
+    ).strip()
+    terminal_workflow_payload = json.dumps({"jobId": terminal_workflow_job_id})
+    machine.succeed(
+        "curl --fail --silent --show-error --max-time 5 "
+        "-H 'content-type: application/json' "
+        f"--data '{terminal_workflow_payload}' "
+        f"http://127.0.0.1:8080/UrlMediaWorkflow/{terminal_workflow_job_id}/run/send"
+    )
+    machine.wait_until_succeeds(
+        "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive -At "
+        f"-c \"SELECT status || ':' || attempts FROM url_archive_jobs WHERE id = '{terminal_workflow_job_id}'\" "
+        "| grep '^no_media:0$'",
+        timeout=20,
+    )
+    machine.succeed(
+        "! journalctl -u url-media-archive-worker.service --no-pager "
+        "| grep -F 'UrlMediaArchiveHostLeaseQueue/terminal.example.com/acquire'"
+    )
+
+    for source_key, url in [
+        ("910", "https://example.com/media/910"),
+        ("911", "https://example.com/media/911"),
+    ]:
+        same_host_payload = json.dumps({
+            "source": "example-feed",
+            "sourceKey": source_key,
+            "url": url,
+            "metadata": {"author": "user"},
+        })
+        machine.succeed(
+            "curl --fail --silent --show-error "
+            "-H 'content-type: application/json' "
+            f"--data '{same_host_payload}' "
+            "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
+        )
+    for source_key in ["910", "911"]:
+        same_host_status_payload = json.dumps({"source": "example-feed", "sourceKey": source_key})
+        machine.wait_until_succeeds(
+            "curl --fail --silent --show-error --max-time 5 "
+            "-H 'content-type: application/json' "
+            f"--data '{same_host_status_payload}' "
+            "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"stored\" and (.outputs | length) == 1 and .error == {}'",
+            timeout=60,
+        )
+    machine.succeed("test ! -e /tmp/same-host-overlap")
+
+    for source_key, url in [
+        ("920", "https://other.example.com/media/920"),
+        ("921", "https://third.example.com/media/921"),
+    ]:
+        different_host_payload = json.dumps({
+            "source": "example-feed",
+            "sourceKey": source_key,
+            "url": url,
+            "metadata": {"author": "user"},
+        })
+        machine.succeed(
+            "curl --fail --silent --show-error "
+            "-H 'content-type: application/json' "
+            f"--data '{different_host_payload}' "
+            "http://127.0.0.1:8080/UrlMediaArchive/submitDiscoveredUrl"
+        )
+    for source_key in ["920", "921"]:
+        different_host_status_payload = json.dumps({"source": "example-feed", "sourceKey": source_key})
+        machine.wait_until_succeeds(
+            "curl --fail --silent --show-error --max-time 5 "
+            "-H 'content-type: application/json' "
+            f"--data '{different_host_status_payload}' "
+            "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"stored\" and (.outputs | length) == 1 and .error == {}'",
+            timeout=60,
+        )
 
     no_media_payload = json.dumps({
         "source": "example-feed",
