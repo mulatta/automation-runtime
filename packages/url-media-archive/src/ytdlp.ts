@@ -18,6 +18,9 @@ export type ProbeError = {
   exitCode?: number;
   signal?: string;
   timedOut: boolean;
+  followedExternal?: boolean;
+  inputHost?: string;
+  externalHost?: string;
 };
 
 export type YtDlpProbeMetadata = {
@@ -31,6 +34,10 @@ export type YtDlpProbeMetadata = {
   uploadDate?: string;
   timestamp?: number;
   formatCount?: number;
+  inputHost?: string;
+  webpageHost?: string;
+  originalHost?: string;
+  followedExternal?: boolean;
 };
 
 export type YtDlpProbeResult = {
@@ -89,7 +96,7 @@ export async function probeWithYtDlp(
     const result = await runner(command, args, {
       timeoutMs: options.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
     });
-    return probeResultFromStdout(result.stdout);
+    return probeResultFromStdout(result.stdout, url);
   } catch (error) {
     if (error instanceof CommandError) {
       return classifyFailure(error.result);
@@ -188,12 +195,15 @@ async function listDownloadedMediaFiles(targetDir: string): Promise<string[]> {
   return files;
 }
 
-function probeResultFromStdout(stdout: string): YtDlpProbeResult {
+function probeResultFromStdout(
+  stdout: string,
+  inputUrl: string,
+): YtDlpProbeResult {
   const parsed = parseJsonObject(stdout);
-  const metadata = extractMetadata(parsed);
+  const metadata = extractMetadata(parsed, inputUrl);
   const hasMedia = hasExtractableMedia(parsed);
 
-  if (hasMedia) {
+  if (hasMedia && !metadata.followedExternal) {
     return {
       hasMedia: true,
       probeStatus: "has_media",
@@ -209,11 +219,26 @@ function probeResultFromStdout(stdout: string): YtDlpProbeResult {
     terminal: true,
     retryable: false,
     metadata,
-    error: {
+    error: noMediaError(metadata),
+  };
+}
+
+function noMediaError(metadata: YtDlpProbeMetadata): ProbeError {
+  if (metadata.followedExternal) {
+    return compactError({
       type: "no_media",
-      message: "yt-dlp returned metadata without downloadable formats",
+      message: "yt-dlp resolved media on an external host",
       timedOut: false,
-    },
+      followedExternal: true,
+      inputHost: metadata.inputHost,
+      externalHost: metadata.webpageHost ?? metadata.originalHost,
+    });
+  }
+
+  return {
+    type: "no_media",
+    message: "yt-dlp returned metadata without downloadable formats",
+    timedOut: false,
   };
 }
 
@@ -237,18 +262,36 @@ function hasExtractableMedia(info: Record<string, unknown>): boolean {
   return nonEmptyArray(info.formats) || nonEmptyArray(info.requested_downloads);
 }
 
-function extractMetadata(info: Record<string, unknown>): YtDlpProbeMetadata {
+function extractMetadata(
+  info: Record<string, unknown>,
+  inputUrl: string,
+): YtDlpProbeMetadata {
+  const webpageUrl = stringValue(info.webpage_url);
+  const originalUrl = stringValue(info.original_url);
+  const inputHost = hostFromUrl(inputUrl);
+  const webpageHost = hostFromUrl(webpageUrl);
+  const originalHost = hostFromUrl(originalUrl);
+  const resolvedHost = webpageHost ?? originalHost;
+  const followedExternal =
+    inputHost !== undefined &&
+    resolvedHost !== undefined &&
+    !sameHost(inputHost, resolvedHost);
+
   return compactMetadata({
     id: stringValue(info.id),
     title: stringValue(info.title),
     extractor: stringValue(info.extractor),
     extractorKey: stringValue(info.extractor_key),
-    webpageUrl: stringValue(info.webpage_url),
-    originalUrl: stringValue(info.original_url),
+    webpageUrl,
+    originalUrl,
     duration: numberValue(info.duration),
     uploadDate: stringValue(info.upload_date),
     timestamp: numberValue(info.timestamp),
     formatCount: Array.isArray(info.formats) ? info.formats.length : undefined,
+    inputHost,
+    webpageHost,
+    originalHost,
+    followedExternal,
   });
 }
 
@@ -274,6 +317,18 @@ function classifyFailure(result: CommandResult): YtDlpProbeResult {
       false,
       result,
       message,
+    );
+  }
+  const externalUrl = followedExternalUrl(result);
+  if (externalUrl) {
+    return failureResult(
+      "no_media",
+      "no_media",
+      false,
+      true,
+      result,
+      message,
+      externalProbeErrorFields(result, externalUrl),
     );
   }
   if (
@@ -351,6 +406,7 @@ function failureResult(
   terminal: boolean,
   result: CommandResult,
   message: string,
+  extraErrorFields: Partial<ProbeError> = {},
 ): YtDlpProbeResult {
   return {
     hasMedia: false,
@@ -358,13 +414,14 @@ function failureResult(
     retryable,
     terminal,
     metadata: {},
-    error: {
+    error: compactError({
       type,
       message: message || `${result.command} failed`,
       exitCode: result.exitCode ?? undefined,
       signal: result.signal ?? undefined,
       timedOut: result.timedOut,
-    },
+      ...extraErrorFields,
+    }),
   };
 }
 
@@ -382,8 +439,56 @@ function numberValue(value: unknown): number | undefined {
     : undefined;
 }
 
+function followedExternalUrl(result: CommandResult): string | undefined {
+  const inputUrl = result.args.at(-1);
+  const inputHost = hostFromUrl(inputUrl);
+  if (!inputHost) return undefined;
+
+  const extractedUrls = [result.stderr, result.stdout]
+    .join("\n")
+    .matchAll(/Extracting URL:\s*(https?:\/\/\S+)/gi);
+  for (const match of extractedUrls) {
+    const candidate = match[1];
+    const candidateHost = hostFromUrl(candidate);
+    if (candidateHost && !sameHost(inputHost, candidateHost)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function externalProbeErrorFields(
+  result: CommandResult,
+  externalUrl: string,
+): Partial<ProbeError> {
+  return {
+    followedExternal: true,
+    inputHost: hostFromUrl(result.args.at(-1)),
+    externalHost: hostFromUrl(externalUrl),
+  };
+}
+
+function hostFromUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function sameHost(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase();
+}
+
 function compactMetadata(metadata: YtDlpProbeMetadata): YtDlpProbeMetadata {
   return Object.fromEntries(
     Object.entries(metadata).filter(([, value]) => value !== undefined),
   );
+}
+
+function compactError(error: ProbeError): ProbeError {
+  return Object.fromEntries(
+    Object.entries(error).filter(([, value]) => value !== undefined),
+  ) as ProbeError;
 }
