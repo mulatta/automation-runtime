@@ -62,7 +62,7 @@ export function classifyArchiveError(
     );
   }
   if (
-    /(private|deleted|removed|not available|unavailable|blocked|copyright)/i.test(
+    /(private|deleted|removed|not available|unavailable|blocked|copyright|suspended)/i.test(
       lower,
     )
   ) {

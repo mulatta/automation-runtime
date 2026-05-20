@@ -182,7 +182,7 @@ describe("probeWithYtDlp", () => {
     const failure = commandResult({
       exitCode: 1,
       stderr:
-        "WARNING: [example] Rate-limit exceeded; falling back to syndication endpoint",
+        "WARNING: [example] Rate-limit exceeded; falling back to alternate endpoint",
     });
     const result = await probeWithYtDlp("https://example.com/media/123", {
       runCommand: jest.fn().mockRejectedValue(new CommandError(failure)),
@@ -194,6 +194,81 @@ describe("probeWithYtDlp", () => {
       retryable: true,
       terminal: false,
       error: { type: "retryable_rate_limit" },
+    });
+  });
+
+  it("keeps rate-limited no-video probes retryable", async () => {
+    const failure = commandResult({
+      exitCode: 1,
+      stderr:
+        "WARNING: [example] Rate-limit exceeded; falling back to alternate endpoint\n" +
+        "WARNING: [example] Not all metadata or media is available via alternate endpoint\n" +
+        "ERROR: [example] 123: No video could be found in this post",
+    });
+    const result = await probeWithYtDlp("https://example.com/media/123", {
+      runCommand: jest.fn().mockRejectedValue(new CommandError(failure)),
+    });
+
+    expect(result).toMatchObject({
+      hasMedia: false,
+      probeStatus: "unavailable",
+      retryable: true,
+      terminal: false,
+      error: { type: "retryable_rate_limit" },
+    });
+  });
+
+  it("classifies plain no-video probe failures as no media", async () => {
+    const failure = commandResult({
+      exitCode: 1,
+      stderr: "ERROR: [example] 123: No video could be found in this post",
+    });
+    const result = await probeWithYtDlp("https://example.com/media/123", {
+      runCommand: jest.fn().mockRejectedValue(new CommandError(failure)),
+    });
+
+    expect(result).toMatchObject({
+      hasMedia: false,
+      probeStatus: "no_media",
+      retryable: false,
+      terminal: true,
+      error: { type: "no_media" },
+    });
+  });
+
+  it("classifies suspended posts as terminal unavailable failures", async () => {
+    const failure = commandResult({
+      exitCode: 1,
+      stderr: "ERROR: [example] 123: Suspended",
+    });
+    const result = await probeWithYtDlp("https://example.com/media/123", {
+      runCommand: jest.fn().mockRejectedValue(new CommandError(failure)),
+    });
+
+    expect(result).toMatchObject({
+      hasMedia: false,
+      probeStatus: "unavailable",
+      retryable: false,
+      terminal: true,
+      error: { type: "unavailable" },
+    });
+  });
+
+  it("classifies connection resets as retryable network failures", async () => {
+    const failure = commandResult({
+      exitCode: 1,
+      stderr: "ERROR: Unable to download webpage: Connection reset by peer",
+    });
+    const result = await probeWithYtDlp("https://example.com/media/123", {
+      runCommand: jest.fn().mockRejectedValue(new CommandError(failure)),
+    });
+
+    expect(result).toMatchObject({
+      hasMedia: false,
+      probeStatus: "unavailable",
+      retryable: true,
+      terminal: false,
+      error: { type: "retryable_network_timeout" },
     });
   });
 });
