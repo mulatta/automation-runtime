@@ -111,6 +111,9 @@ describe("probeWithYtDlp", () => {
         title: "Example",
         extractor: "generic",
         webpageUrl: "https://example.com/video",
+        inputHost: "example.com",
+        webpageHost: "example.com",
+        followedExternal: false,
       },
     });
   });
@@ -269,6 +272,69 @@ describe("probeWithYtDlp", () => {
       retryable: true,
       terminal: false,
       error: { type: "retryable_network_timeout" },
+    });
+  });
+
+  it("treats failed external fallback probes as no media", async () => {
+    const failure = commandResult({
+      args: ["https://example.com/media/123"],
+      exitCode: 1,
+      stderr:
+        "[native] Extracting URL: https://example.com/media/123\n" +
+        "[generic] Extracting URL: https://external.example/profile\n" +
+        "ERROR: Unable to download webpage: Connection reset by peer",
+    });
+    const result = await probeWithYtDlp("https://example.com/media/123", {
+      runCommand: jest.fn().mockRejectedValue(new CommandError(failure)),
+    });
+
+    expect(result).toMatchObject({
+      hasMedia: false,
+      probeStatus: "no_media",
+      retryable: false,
+      terminal: true,
+      error: {
+        type: "no_media",
+        followedExternal: true,
+        inputHost: "example.com",
+        externalHost: "external.example",
+      },
+    });
+  });
+
+  it("treats successful external fallback probes as no media", async () => {
+    const result = await probeWithYtDlp("https://example.com/media/123", {
+      runCommand: jest.fn().mockResolvedValue(
+        commandResult({
+          stdout: JSON.stringify({
+            id: "external-123",
+            title: "External media",
+            extractor: "generic",
+            webpage_url: "https://external.example/watch/123",
+            original_url: "https://example.com/media/123",
+            formats: [
+              { format_id: "http", url: "https://cdn.example/video.mp4" },
+            ],
+          }),
+        }),
+      ),
+    });
+
+    expect(result).toMatchObject({
+      hasMedia: false,
+      probeStatus: "no_media",
+      retryable: false,
+      terminal: true,
+      metadata: {
+        inputHost: "example.com",
+        webpageHost: "external.example",
+        originalHost: "example.com",
+        followedExternal: true,
+      },
+      error: {
+        type: "no_media",
+        followedExternal: true,
+      },
     });
   });
 });
