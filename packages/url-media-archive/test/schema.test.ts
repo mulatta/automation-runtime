@@ -1,5 +1,6 @@
 import {
   DrainPendingRequest,
+  HostQueueDrainRequest,
   UrlMediaJobRunRequest,
   StatusBySourceRequest,
   SubmitDiscoveredUrlRequest,
@@ -35,6 +36,10 @@ describe("url-media-archive schemas", () => {
   it("defaults drain requests", () => {
     expect(DrainPendingRequest.parse({})).toEqual({
       limit: 25,
+      statuses: ["pending", "failed"],
+    });
+    expect(HostQueueDrainRequest.parse({ limit: 2 })).toEqual({
+      limit: 2,
       statuses: ["pending", "failed"],
     });
   });

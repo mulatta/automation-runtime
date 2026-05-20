@@ -18,6 +18,7 @@ import type { YtDlpDownloadResult, YtDlpProbeResult } from "./ytdlp";
 import { canonicalizeUrl, jobIdFromJobKey, jobKeyForJobId } from "./ids";
 import {
   DrainPendingRequest,
+  HostQueueDrainRequest,
   RateLimitReserveRequest,
   UrlMediaJobRunRequest,
   StatusBySourceRequest,
@@ -33,8 +34,10 @@ import { assertSafeArchiveUrl } from "./urlSafety";
 
 const WORKER_VERSION = "0.1.0";
 const URL_MEDIA_JOB_SERVICE = "UrlMediaJob";
+const URL_MEDIA_HOST_QUEUE_SERVICE = "UrlMediaArchiveHostQueue";
 const URL_MEDIA_RATE_LIMIT_SERVICE = "UrlMediaArchiveRateLimit";
 const RUN_METHOD = "run";
+const DRAIN_METHOD = "drain";
 
 type MediaProber = {
   probe(url: string): Promise<YtDlpProbeResult>;
@@ -91,6 +94,13 @@ type SubmitAccepted = {
 type DrainResult = PendingSummary & {
   accepted: number;
   skipped: number;
+  jobKeys: string[];
+  hostKeys: string[];
+};
+
+type HostQueueDrainResult = {
+  host: string;
+  processed: number;
   jobKeys: string[];
 };
 
@@ -244,25 +254,21 @@ export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
         const jobs = await ctx.run("list-pending-jobs", () =>
           db.listPending(request.limit, request.source, request.statuses),
         );
-        const jobKeys: string[] = [];
-        for (const job of jobs) {
-          const jobKey = jobKeyForJobId(job.id);
-          sendUrlMediaJob(
-            ctx,
-            jobKey,
-            {
-              mode: "db",
-              job: toJobSnapshot(job),
-            },
-            urlMediaJobRunIdempotencyKey(jobKey, job),
-          );
-          jobKeys.push(jobKey);
+        const jobKeys = jobs.map((job) => jobKeyForJobId(job.id));
+        const hosts = pendingJobsByHost(jobs);
+        for (const [host, hostJobs] of hosts) {
+          sendUrlMediaHostQueue(ctx, host, {
+            limit: hostJobs.length,
+            source: request.source,
+            statuses: request.statuses,
+          });
         }
         return {
           ...summary,
           accepted: jobKeys.length,
           skipped: Math.max(0, summary.due - jobKeys.length),
           jobKeys,
+          hostKeys: [...hosts.keys()],
         };
       },
 
@@ -373,6 +379,46 @@ export function createUrlMediaJob(deps: UrlMediaArchiveDeps = {}) {
   });
 }
 
+export function createUrlMediaHostQueue(deps: UrlMediaArchiveDeps = {}) {
+  return restate.object({
+    name: URL_MEDIA_HOST_QUEUE_SERVICE,
+    handlers: {
+      drain: async (
+        ctx: restate.ObjectContext,
+        input: unknown,
+      ): Promise<HostQueueDrainResult> => {
+        const request = HostQueueDrainRequest.parse(input ?? {});
+        const db = requireDatabase(deps);
+        const jobKeys: string[] = [];
+
+        for (let index = 0; index < request.limit; index += 1) {
+          const jobs = await ctx.run(`list-next-pending-job-${index}`, () =>
+            db.listPendingByHost(ctx.key, 1, request.source, request.statuses),
+          );
+          const job = jobs[0];
+          if (!job) break;
+
+          const jobKey = jobKeyForJobId(job.id);
+          await ctx.genericCall<UrlMediaJobRunRequest, UrlMediaJobState>({
+            service: URL_MEDIA_JOB_SERVICE,
+            method: RUN_METHOD,
+            key: jobKey,
+            parameter: {
+              mode: "db",
+              job: toJobSnapshot(job),
+            },
+            inputSerde: restate.serde.json,
+            outputSerde: restate.serde.json,
+          });
+          jobKeys.push(jobKey);
+        }
+
+        return { host: ctx.key, processed: jobKeys.length, jobKeys };
+      },
+    },
+  });
+}
+
 export function createUrlMediaRateLimit() {
   return restate.object({
     name: URL_MEDIA_RATE_LIMIT_SERVICE,
@@ -408,10 +454,12 @@ export function createUrlMediaRateLimit() {
 
 export const urlMediaArchive = createUrlMediaArchive();
 export const urlMediaJob = createUrlMediaJob();
+export const urlMediaHostQueue = createUrlMediaHostQueue();
 export const urlMediaRateLimit = createUrlMediaRateLimit();
 
 export type UrlMediaArchive = ReturnType<typeof createUrlMediaArchive>;
 export type UrlMediaJob = ReturnType<typeof createUrlMediaJob>;
+export type UrlMediaHostQueue = ReturnType<typeof createUrlMediaHostQueue>;
 export type UrlMediaRateLimit = ReturnType<typeof createUrlMediaRateLimit>;
 
 function requireDatabase(deps: UrlMediaArchiveDeps): ArchiveStore {
@@ -440,6 +488,33 @@ function sendUrlMediaJob(
     inputSerde: restate.serde.json,
     idempotencyKey,
   });
+}
+
+function sendUrlMediaHostQueue(
+  ctx: restate.Context,
+  host: string,
+  request: unknown,
+): void {
+  ctx.genericSend({
+    service: URL_MEDIA_HOST_QUEUE_SERVICE,
+    method: DRAIN_METHOD,
+    key: host,
+    parameter: request,
+    inputSerde: restate.serde.json,
+  });
+}
+
+function pendingJobsByHost(
+  jobs: readonly ArchiveJob[],
+): Map<string, ArchiveJob[]> {
+  const hosts = new Map<string, ArchiveJob[]>();
+  for (const job of jobs) {
+    const host = rateLimitBucketForUrl(job.canonicalUrl);
+    const hostJobs = hosts.get(host) ?? [];
+    hostJobs.push(job);
+    hosts.set(host, hostJobs);
+  }
+  return hosts;
 }
 
 function urlMediaJobRunIdempotencyKey(jobKey: string, job: ArchiveJob): string {

@@ -8,6 +8,7 @@ import { ArchiveDatabase } from "./db";
 import { initialMigrationSql } from "./migrations";
 import {
   createUrlMediaArchive,
+  createUrlMediaHostQueue,
   createUrlMediaJob,
   createUrlMediaRateLimit,
 } from "./service";
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
         ytDlpRequestMinIntervalMs: config.ytDlpRequestMinIntervalMs,
         ytDlpRequestJitterMs: config.ytDlpRequestJitterMs,
       }),
+      createUrlMediaHostQueue({ db }),
       createUrlMediaRateLimit(),
     ],
     identityKeys: config.restateIdentityKeys,

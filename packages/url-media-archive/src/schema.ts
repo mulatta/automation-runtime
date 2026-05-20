@@ -80,6 +80,19 @@ export const DrainPendingRequest = z
   .strict();
 export type DrainPendingRequest = z.infer<typeof DrainPendingRequest>;
 
+export const HostQueueDrainRequest = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(500).default(25),
+    source: SourceName.optional(),
+    statuses: z
+      .array(z.enum(["pending", "failed"]))
+      .min(1)
+      .max(2)
+      .default(["pending", "failed"]),
+  })
+  .strict();
+export type HostQueueDrainRequest = z.infer<typeof HostQueueDrainRequest>;
+
 export const StatusRequest = z
   .object({
     jobId: Uuid.optional(),
