@@ -325,7 +325,8 @@ describe("probeWithYtDlp", () => {
     });
 
     expect(runCommand).toHaveBeenCalledTimes(1);
-    expect(runCommand.mock.calls[0]?.[1]).toContain("--verbose");
+    const calls = runCommand.mock.calls as Array<[string, string[]]>;
+    expect(calls[0]?.[1]).toContain("--verbose");
     expect(result).toMatchObject({
       hasMedia: false,
       probeStatus: "no_media",

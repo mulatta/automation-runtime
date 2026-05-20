@@ -1,0 +1,16 @@
+{
+  "name": "@restate-workflows/restate-building-blocks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable Restate coordination building blocks",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "jest --testPathPatterns=packages/restate-building-blocks/"
+  },
+  "dependencies": {
+    "@restatedev/restate-sdk": "^1.9.0",
+    "zod": "^4.1.12"
+  }
+}
