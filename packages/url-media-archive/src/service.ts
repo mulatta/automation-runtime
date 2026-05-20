@@ -1,6 +1,8 @@
 import * as restate from "@restatedev/restate-sdk";
 import {
   createLeaseQueue,
+  createRateLimiter,
+  waitForRateLimit,
   withLease,
 } from "@restate-workflows/restate-building-blocks";
 
@@ -23,7 +25,6 @@ import { canonicalizeUrl, jobIdFromJobKey, jobKeyForJobId } from "./ids";
 import {
   DrainPendingRequest,
   HostQueueDrainRequest,
-  RateLimitReserveRequest,
   UrlMediaJobRunRequest,
   UrlMediaWorkflowRunRequest,
   StatusBySourceRequest,
@@ -32,7 +33,6 @@ import {
   SubmitJobRequest,
   SubmitUrlRequest,
   type ArchiveJobSnapshot,
-  type RateLimitReservation,
   type WorkerStatus,
 } from "./schema";
 import { assertSafeArchiveUrl } from "./urlSafety";
@@ -494,36 +494,7 @@ export function createUrlMediaHostQueue(deps: UrlMediaArchiveDeps = {}) {
 }
 
 export function createUrlMediaRateLimit() {
-  return restate.object({
-    name: URL_MEDIA_RATE_LIMIT_SERVICE,
-    handlers: {
-      reserve: async (
-        ctx: restate.ObjectContext,
-        input: unknown,
-      ): Promise<RateLimitReservation> => {
-        const request = RateLimitReserveRequest.parse(input ?? {});
-        const now = await ctx.date.now();
-        const state = (await ctx.get<{ nextAvailableAtMs: number }>(
-          "state",
-        )) ?? { nextAvailableAtMs: now };
-        const reservedAtMs = Math.max(now, state.nextAvailableAtMs);
-        const jitterMs =
-          request.jitterMs === 0
-            ? 0
-            : Math.floor(ctx.rand.random() * (request.jitterMs + 1));
-        const intervalMs = request.minIntervalMs + jitterMs;
-        const nextAvailableAtMs = reservedAtMs + intervalMs;
-        ctx.set("state", { nextAvailableAtMs });
-        return {
-          delayMs: Math.max(0, reservedAtMs - now),
-          intervalMs,
-          jitterMs,
-          reservedAt: new Date(reservedAtMs).toISOString(),
-          nextAvailableAt: new Date(nextAvailableAtMs).toISOString(),
-        };
-      },
-    },
-  });
+  return createRateLimiter({ name: URL_MEDIA_RATE_LIMIT_SERVICE });
 }
 
 export const urlMediaArchive = createUrlMediaArchive();
@@ -750,19 +721,13 @@ async function waitForYtDlpRateLimitSlot(
   const jitterMs = deps.ytDlpRequestJitterMs ?? 0;
   if (minIntervalMs <= 0 && jitterMs <= 0) return;
 
-  const bucket = rateLimitBucketForUrl(url);
-  const reservation = await ctx.genericCall<unknown, RateLimitReservation>({
-    service: URL_MEDIA_RATE_LIMIT_SERVICE,
-    method: "reserve",
-    key: bucket,
-    parameter: { minIntervalMs, jitterMs },
-    inputSerde: restate.serde.json,
-    outputSerde: restate.serde.json,
+  await waitForRateLimit(ctx, {
+    jitterMs,
+    minIntervalMs,
+    rateLimiterService: URL_MEDIA_RATE_LIMIT_SERVICE,
+    resourceKey: rateLimitBucketForUrl(url),
+    sleepName: `yt-dlp-rate-limit-${phase}`,
   });
-
-  if (reservation.delayMs > 0) {
-    await ctx.sleep(reservation.delayMs, `yt-dlp-rate-limit-${phase}`);
-  }
 }
 
 function rateLimitBucketForUrl(url: string): string {
