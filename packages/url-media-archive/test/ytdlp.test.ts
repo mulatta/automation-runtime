@@ -95,6 +95,7 @@ describe("probeWithYtDlp", () => {
         "--dump-single-json",
         "--no-playlist",
         "--skip-download",
+        "--verbose",
         "--cookies",
         "/run/cookies.txt",
         "https://example.com/video",
@@ -288,6 +289,43 @@ describe("probeWithYtDlp", () => {
       runCommand: jest.fn().mockRejectedValue(new CommandError(failure)),
     });
 
+    expect(result).toMatchObject({
+      hasMedia: false,
+      probeStatus: "no_media",
+      retryable: false,
+      terminal: true,
+      error: {
+        type: "no_media",
+        followedExternal: true,
+        inputHost: "example.com",
+        externalHost: "external.example",
+      },
+    });
+  });
+
+  it("uses verbose traces to detect failed external fallback probes", async () => {
+    const failure = commandResult({
+      args: [
+        "--dump-single-json",
+        "--no-playlist",
+        "--skip-download",
+        "--verbose",
+        "https://example.com/media/123",
+      ],
+      exitCode: 1,
+      stderr:
+        "[native] Extracting URL: https://example.com/media/123\n" +
+        "[generic] Extracting URL: https://external.example/profile\n" +
+        "ERROR: Unable to download webpage: Connection reset by peer",
+    });
+    const runCommand = jest.fn().mockRejectedValue(new CommandError(failure));
+
+    const result = await probeWithYtDlp("https://example.com/media/123", {
+      runCommand,
+    });
+
+    expect(runCommand).toHaveBeenCalledTimes(1);
+    expect(runCommand.mock.calls[0]?.[1]).toContain("--verbose");
     expect(result).toMatchObject({
       hasMedia: false,
       probeStatus: "no_media",
