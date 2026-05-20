@@ -38,8 +38,10 @@ describe("url-media-archive schemas", () => {
       limit: 25,
       statuses: ["pending", "failed"],
     });
-    expect(HostQueueDrainRequest.parse({ limit: 2 })).toEqual({
+    const jobId = crypto.randomUUID();
+    expect(HostQueueDrainRequest.parse({ limit: 2, jobId })).toEqual({
       limit: 2,
+      jobId,
       statuses: ["pending", "failed"],
     });
   });
