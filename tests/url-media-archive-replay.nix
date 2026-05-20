@@ -219,6 +219,11 @@ pkgs.testers.runNixOSTest {
     status_json = json.loads(read_status())
     assert status_json["canonicalUrl"] == "https://example.com/media/123"
 
+    machine.succeed(
+        "journalctl -u url-media-archive-worker.service --no-pager "
+        "| grep -F 'UrlMediaArchiveHostQueue/example.com/drain'"
+    )
+
     job_key_status_payload = json.dumps({"jobKey": accepted["jobKey"]})
     machine.succeed(
         "curl --fail --silent --show-error "

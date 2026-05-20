@@ -83,6 +83,7 @@ export type DrainPendingRequest = z.infer<typeof DrainPendingRequest>;
 export const HostQueueDrainRequest = z
   .object({
     limit: z.coerce.number().int().min(1).max(500).default(25),
+    jobId: Uuid.optional(),
     source: SourceName.optional(),
     statuses: z
       .array(z.enum(["pending", "failed"]))

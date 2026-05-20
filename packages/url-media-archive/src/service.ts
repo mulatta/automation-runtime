@@ -154,15 +154,7 @@ export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
         );
         const jobKey = jobKeyForJobId(upserted.job.id);
 
-        sendUrlMediaJob(
-          ctx,
-          jobKey,
-          {
-            mode: "db",
-            job: toJobSnapshot(upserted.job),
-          },
-          urlMediaJobRunIdempotencyKey(jobKey, upserted.job),
-        );
+        sendUrlMediaHostQueueForJob(ctx, upserted.job, request.source);
 
         return {
           accepted: true,
@@ -191,15 +183,7 @@ export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
         }
 
         const jobKey = jobKeyForJobId(job.id);
-        sendUrlMediaJob(
-          ctx,
-          jobKey,
-          {
-            mode: "db",
-            job: toJobSnapshot(job),
-          },
-          urlMediaJobRunIdempotencyKey(jobKey, job),
-        );
+        sendUrlMediaHostQueueForJob(ctx, job);
 
         return { accepted: true, jobKey, jobId: job.id };
       },
@@ -224,15 +208,7 @@ export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
         );
         const jobKey = jobKeyForJobId(upserted.job.id);
 
-        sendUrlMediaJob(
-          ctx,
-          jobKey,
-          {
-            mode: "db",
-            job: toJobSnapshot(upserted.job),
-          },
-          urlMediaJobRunIdempotencyKey(jobKey, upserted.job),
-        );
+        sendUrlMediaHostQueueForJob(ctx, upserted.job, "manual");
 
         return {
           accepted: true,
@@ -391,6 +367,22 @@ export function createUrlMediaHostQueue(deps: UrlMediaArchiveDeps = {}) {
         const db = requireDatabase(deps);
         const jobKeys: string[] = [];
 
+        if (request.jobId) {
+          const jobId = request.jobId;
+          const job = await ctx.run("get-requested-pending-job", () =>
+            db.getArchiveJob(jobId),
+          );
+          const nowMs = await ctx.date.now();
+          if (
+            job &&
+            shouldHostQueueRunJob(ctx.key, job, request.statuses, nowMs)
+          ) {
+            await callUrlMediaJob(ctx, job);
+            jobKeys.push(jobKeyForJobId(job.id));
+          }
+          return { host: ctx.key, processed: jobKeys.length, jobKeys };
+        }
+
         for (let index = 0; index < request.limit; index += 1) {
           const jobs = await ctx.run(`list-next-pending-job-${index}`, () =>
             db.listPendingByHost(ctx.key, 1, request.source, request.statuses),
@@ -398,19 +390,8 @@ export function createUrlMediaHostQueue(deps: UrlMediaArchiveDeps = {}) {
           const job = jobs[0];
           if (!job) break;
 
-          const jobKey = jobKeyForJobId(job.id);
-          await ctx.genericCall<UrlMediaJobRunRequest, UrlMediaJobState>({
-            service: URL_MEDIA_JOB_SERVICE,
-            method: RUN_METHOD,
-            key: jobKey,
-            parameter: {
-              mode: "db",
-              job: toJobSnapshot(job),
-            },
-            inputSerde: restate.serde.json,
-            outputSerde: restate.serde.json,
-          });
-          jobKeys.push(jobKey);
+          await callUrlMediaJob(ctx, job);
+          jobKeys.push(jobKeyForJobId(job.id));
         }
 
         return { host: ctx.key, processed: jobKeys.length, jobKeys };
@@ -474,26 +455,40 @@ function requireDatabase(deps: UrlMediaArchiveDeps): ArchiveStore {
   return deps.db;
 }
 
-function sendUrlMediaJob(
-  ctx: restate.Context,
-  jobKey: string,
-  request: unknown,
-  idempotencyKey = jobKey,
-): void {
-  ctx.genericSend({
+async function callUrlMediaJob(
+  ctx: restate.ObjectContext,
+  job: ArchiveJob,
+): Promise<UrlMediaJobState> {
+  return await ctx.genericCall<UrlMediaJobRunRequest, UrlMediaJobState>({
     service: URL_MEDIA_JOB_SERVICE,
     method: RUN_METHOD,
-    key: jobKey,
-    parameter: request,
+    key: jobKeyForJobId(job.id),
+    parameter: {
+      mode: "db",
+      job: toJobSnapshot(job),
+    },
     inputSerde: restate.serde.json,
-    idempotencyKey,
+    outputSerde: restate.serde.json,
+  });
+}
+
+function sendUrlMediaHostQueueForJob(
+  ctx: restate.Context,
+  job: ArchiveJob,
+  source?: string,
+): void {
+  sendUrlMediaHostQueue(ctx, rateLimitBucketForUrl(job.canonicalUrl), {
+    limit: 1,
+    jobId: job.id,
+    source,
+    statuses: ["pending", "failed"],
   });
 }
 
 function sendUrlMediaHostQueue(
   ctx: restate.Context,
   host: string,
-  request: unknown,
+  request: HostQueueDrainRequest,
 ): void {
   ctx.genericSend({
     service: URL_MEDIA_HOST_QUEUE_SERVICE,
@@ -517,8 +512,19 @@ function pendingJobsByHost(
   return hosts;
 }
 
-function urlMediaJobRunIdempotencyKey(jobKey: string, job: ArchiveJob): string {
-  return `${jobKey}:attempt-${job.attempts}`;
+function shouldHostQueueRunJob(
+  host: string,
+  job: ArchiveJob,
+  statuses: readonly ArchiveJob["status"][],
+  nowMs: number,
+): boolean {
+  return (
+    rateLimitBucketForUrl(job.canonicalUrl) === host &&
+    statuses.includes(job.status) &&
+    (job.status !== "failed" ||
+      job.nextRetryAt === null ||
+      Date.parse(job.nextRetryAt) <= nowMs)
+  );
 }
 
 function toJobSnapshot(job: ArchiveJob): ArchiveJobSnapshot {
