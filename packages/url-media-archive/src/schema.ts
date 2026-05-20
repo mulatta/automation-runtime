@@ -134,6 +134,16 @@ export const UrlMediaJobRunRequest = z
   .strict();
 export type UrlMediaJobRunRequest = z.infer<typeof UrlMediaJobRunRequest>;
 
+export const UrlMediaWorkflowRunRequest = z
+  .object({
+    jobId: Uuid,
+    maxAttemptsPerInvocation: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+export type UrlMediaWorkflowRunRequest = z.infer<
+  typeof UrlMediaWorkflowRunRequest
+>;
+
 export const RateLimitReserveRequest = z
   .object({
     minIntervalMs: z

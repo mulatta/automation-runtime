@@ -221,7 +221,11 @@ pkgs.testers.runNixOSTest {
 
     machine.succeed(
         "journalctl -u url-media-archive-worker.service --no-pager "
-        "| grep -F 'UrlMediaArchiveHostQueue/example.com/drain'"
+        f"| grep -F 'UrlMediaWorkflow/{accepted['jobId']}/run'"
+    )
+    machine.succeed(
+        "journalctl -u url-media-archive-worker.service --no-pager "
+        "| grep -F 'UrlMediaArchiveHostLeaseQueue/example.com/acquire'"
     )
 
     job_key_status_payload = json.dumps({"jobKey": accepted["jobKey"]})
@@ -235,6 +239,31 @@ pkgs.testers.runNixOSTest {
     machine.succeed("find /var/lib/url-media-archive/archive/db -type f | grep -F 'Replay fixture [123].mp4'")
     machine.succeed("find /var/lib/url-media-archive/archive/db -type f | grep -F 'Replay fixture [123].nfo'")
     machine.succeed(f"test ! -d {temp_dir_for_job_key(accepted['jobKey'])}")
+
+    workflow_job_id = machine.succeed(
+        "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive -qAt "
+        "-c \"WITH inserted AS ("
+        "INSERT INTO url_archive_jobs (url, canonical_url, status, next_retry_at) "
+        "VALUES ('https://example.com/media/901', 'https://example.com/media/901', 'failed', now() + interval '2 seconds') "
+        "RETURNING id) SELECT id FROM inserted\""
+    ).strip()
+    workflow_payload = json.dumps({"jobId": workflow_job_id, "maxAttemptsPerInvocation": 2})
+    machine.succeed(
+        "curl --fail --silent --show-error --max-time 5 "
+        "-H 'content-type: application/json' "
+        f"--data '{workflow_payload}' "
+        f"http://127.0.0.1:8080/UrlMediaWorkflow/{workflow_job_id}/run/send"
+    )
+    machine.wait_until_succeeds(
+        "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive -At "
+        f"-c \"SELECT status || ':' || attempts FROM url_archive_jobs WHERE id = '{workflow_job_id}'\" "
+        "| grep '^stored:1$'",
+        timeout=60,
+    )
+    machine.succeed(
+        "journalctl -u url-media-archive-worker.service --no-pager "
+        "| grep -F 'UrlMediaArchiveHostLeaseQueue/example.com/acquire'"
+    )
 
     no_media_payload = json.dumps({
         "source": "example-feed",
@@ -415,32 +444,6 @@ pkgs.testers.runNixOSTest {
         "-H 'content-type: application/json' "
         f"--data '{retry_status_payload}' "
         "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"failed\" and .probeStatus == \"has_media\" and .nextRetryAt != null and .error.type == \"retryable_network_timeout\" and (.outputs | length) == 0'",
-        timeout=60,
-    )
-    machine.succeed(f"test ! -d {temp_dir_for_job_key(retry_accepted['jobKey'])}")
-    machine.succeed(
-        "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive "
-        "-c \"UPDATE url_archive_jobs SET next_retry_at = now() WHERE canonical_url = 'https://example.com/media/789'\""
-    )
-    drain_payload = json.dumps({"limit": 10, "source": "example-feed", "statuses": ["failed"]})
-    drain_response = machine.succeed(
-        "curl --fail --silent --show-error --max-time 10 "
-        "-H 'content-type: application/json' "
-        f"--data '{drain_payload}' "
-        "http://127.0.0.1:8080/UrlMediaArchive/drainPending"
-    )
-    drain_json = json.loads(drain_response)
-    assert drain_json["accepted"] >= 1
-    assert drain_json["due"] >= drain_json["accepted"]
-    assert drain_json["skipped"] == drain_json["due"] - drain_json["accepted"]
-    assert drain_json["byStatus"]["failed"] >= 1
-    assert drain_json["notDue"] >= 1
-    assert "example.com" in drain_json["hostKeys"]
-    machine.wait_until_succeeds(
-        "curl --fail --silent --show-error --max-time 5 "
-        "-H 'content-type: application/json' "
-        f"--data '{retry_status_payload}' "
-        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"stored\" and .attempts == 2 and (.outputs | length) == 1 and .error == {}'",
         timeout=60,
     )
     machine.succeed(f"test ! -d {temp_dir_for_job_key(retry_accepted['jobKey'])}")
