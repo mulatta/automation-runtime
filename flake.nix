@@ -120,6 +120,12 @@
                 nodeDir="$out/lib/node_modules/${workspace}"
                 mkdir -p "$nodeDir"
                 cp -r packages/${pname}/dist packages/${pname}/package.json node_modules "$nodeDir"/
+                rm -f "$nodeDir/node_modules/@restate-workflows/restate-building-blocks"
+                mkdir -p "$nodeDir/node_modules/@restate-workflows/restate-building-blocks"
+                cp -r \
+                  packages/restate-building-blocks/dist \
+                  packages/restate-building-blocks/package.json \
+                  "$nodeDir/node_modules/@restate-workflows/restate-building-blocks"/
                 find "$nodeDir/node_modules" -type l -xtype l -delete
 
                 makeWrapper ${pkgs.nodejs}/bin/node "$out/bin/${binName}" \

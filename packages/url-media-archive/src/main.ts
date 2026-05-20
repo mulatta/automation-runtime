@@ -8,9 +8,12 @@ import { ArchiveDatabase } from "./db";
 import { initialMigrationSql } from "./migrations";
 import {
   createUrlMediaArchive,
+  createUrlMediaAttempt,
+  createUrlMediaHostLeaseQueue,
   createUrlMediaHostQueue,
   createUrlMediaJob,
   createUrlMediaRateLimit,
+  createUrlMediaWorkflow,
 } from "./service";
 import {
   cleanupArchiveFinalDir,
@@ -46,6 +49,7 @@ async function main(): Promise<void> {
   const handler = restate.createEndpointHandler({
     services: [
       createUrlMediaArchive({ db }),
+      createUrlMediaWorkflow({ db }),
       createUrlMediaJob({
         db,
         prober: ytdlp,
@@ -58,7 +62,20 @@ async function main(): Promise<void> {
         ytDlpRequestMinIntervalMs: config.ytDlpRequestMinIntervalMs,
         ytDlpRequestJitterMs: config.ytDlpRequestJitterMs,
       }),
+      createUrlMediaAttempt({
+        db,
+        prober: ytdlp,
+        downloader: ytdlp,
+        sink: { store: storeFilesystemOutputs },
+        cleanupFinalDir: { cleanup: cleanupArchiveFinalDir },
+        cleanupTempDir: { cleanup: cleanupDownloadTempDir },
+        archiveRoot: config.archiveRoot,
+        keepFailedTempDirs: config.keepFailedTempDirs,
+        ytDlpRequestMinIntervalMs: config.ytDlpRequestMinIntervalMs,
+        ytDlpRequestJitterMs: config.ytDlpRequestJitterMs,
+      }),
       createUrlMediaHostQueue({ db }),
+      createUrlMediaHostLeaseQueue(),
       createUrlMediaRateLimit(),
     ],
     identityKeys: config.restateIdentityKeys,
