@@ -155,7 +155,12 @@ function buildProbeArgs(
   url: string,
   cookiesFile: string | undefined,
 ): string[] {
-  const args = ["--dump-single-json", "--no-playlist", "--skip-download"];
+  const args = [
+    "--dump-single-json",
+    "--no-playlist",
+    "--skip-download",
+    "--verbose",
+  ];
   if (cookiesFile) {
     args.push("--cookies", cookiesFile);
   }
