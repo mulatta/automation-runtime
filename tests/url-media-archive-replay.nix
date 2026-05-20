@@ -430,6 +430,7 @@ pkgs.testers.runNixOSTest {
     assert drain_json["skipped"] == drain_json["due"] - drain_json["accepted"]
     assert drain_json["byStatus"]["failed"] >= 1
     assert drain_json["notDue"] >= 1
+    assert "example.com" in drain_json["hostKeys"]
     machine.wait_until_succeeds(
         "curl --fail --silent --show-error --max-time 5 "
         "-H 'content-type: application/json' "

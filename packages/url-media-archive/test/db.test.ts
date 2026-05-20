@@ -243,6 +243,35 @@ describe("ArchiveDatabase", () => {
     expect(client.calls[0]?.values).toEqual([10, ["failed"], "example-feed"]);
   });
 
+  it("lists due pending work for one URL host", async () => {
+    const client = new ScriptedClient([
+      rows({
+        id: "018f6e9d-4a31-7565-982a-cb5e5f01d31f",
+        url: "https://example.com/media/123",
+        canonical_url: "https://example.com/media/123",
+        status: "failed",
+        probe_status: "has_media",
+        attempts: 1,
+        next_retry_at: null,
+      }),
+    ]);
+    const db = new ArchiveDatabase(client);
+
+    const jobs = await db.listPendingByHost("EXAMPLE.com", 1, "example-feed", [
+      "failed",
+    ]);
+
+    expect(jobs[0]?.id).toBe("018f6e9d-4a31-7565-982a-cb5e5f01d31f");
+    expect(client.calls[0]?.text).toContain("regexp_replace(j.canonical_url");
+    expect(client.calls[0]?.text).toContain("AND s.source = $4");
+    expect(client.calls[0]?.values).toEqual([
+      1,
+      ["failed"],
+      "example.com",
+      "example-feed",
+    ]);
+  });
+
   it("marks terminal failures without allowing retry drain", async () => {
     const client = new ScriptedClient([
       rows({

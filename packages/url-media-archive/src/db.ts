@@ -115,6 +115,12 @@ export type ArchiveStore = {
     source?: string,
     statuses?: readonly z.infer<typeof UrlArchiveStatus>[],
   ): Promise<ArchiveJob[]>;
+  listPendingByHost(
+    host: string,
+    limit: number,
+    source?: string,
+    statuses?: readonly z.infer<typeof UrlArchiveStatus>[],
+  ): Promise<ArchiveJob[]>;
   summarizePending(
     source?: string,
     statuses?: readonly z.infer<typeof UrlArchiveStatus>[],
@@ -407,6 +413,36 @@ export class ArchiveDatabase {
         LEFT JOIN url_archive_sources s ON s.job_id = j.id
         WHERE j.status = ANY($2::url_archive_status[])
           AND (j.status <> 'failed' OR j.next_retry_at IS NULL OR j.next_retry_at <= now())
+          ${sourceFilter}
+        ORDER BY j.created_at ASC
+        LIMIT $1
+      `,
+      values,
+    );
+    return result.rows.map(parseJob);
+  }
+
+  async listPendingByHost(
+    host: string,
+    limit: number,
+    source?: string,
+    statuses: readonly z.infer<typeof UrlArchiveStatus>[] = [
+      "pending",
+      "failed",
+    ],
+  ): Promise<ArchiveJob[]> {
+    const values: unknown[] = [limit, statuses, host.toLowerCase()];
+    const sourceFilter = source ? "AND s.source = $4" : "";
+    if (source) values.push(source);
+
+    const result = await this.db.query(
+      `
+        SELECT DISTINCT j.id, j.url, j.canonical_url, j.status, j.probe_status, j.attempts, j.next_retry_at, j.created_at
+        FROM url_archive_jobs j
+        LEFT JOIN url_archive_sources s ON s.job_id = j.id
+        WHERE j.status = ANY($2::url_archive_status[])
+          AND (j.status <> 'failed' OR j.next_retry_at IS NULL OR j.next_retry_at <= now())
+          AND lower(split_part(split_part(regexp_replace(j.canonical_url, '^[A-Za-z][A-Za-z0-9+.-]*://', ''), '/', 1), ':', 1)) = $3
           ${sourceFilter}
         ORDER BY j.created_at ASC
         LIMIT $1
