@@ -83,7 +83,7 @@ describe("classifyArchiveError", () => {
             "/var/lib/url-media-archive/cookies/browser.netscape.txt",
           ],
           stderr:
-            "ERROR: [twitter] 1226906259057594368: No video could be found in this tweet",
+            "ERROR: [example] 1226906259057594368: No video could be found in this post",
         }),
       ),
     );
@@ -101,9 +101,9 @@ describe("classifyArchiveError", () => {
       new CommandError(
         commandResult({
           stderr:
-            "WARNING: [twitter] Rate-limit exceeded; falling back to syndication endpoint\n" +
-            "WARNING: [twitter] 1226906259057594368: Not all metadata or media is available via syndication endpoint\n" +
-            "ERROR: [twitter] 1226906259057594368: No video could be found in this tweet",
+            "WARNING: [example] Rate-limit exceeded; falling back to alternate endpoint\n" +
+            "WARNING: [example] 1226906259057594368: Not all metadata or media is available via alternate endpoint\n" +
+            "ERROR: [example] 1226906259057594368: No video could be found in this post",
         }),
       ),
     );
@@ -112,6 +112,19 @@ describe("classifyArchiveError", () => {
       kind: "retryable_rate_limit",
       terminal: false,
       retryable: true,
+    });
+  });
+
+  it("classifies suspended content as terminal", () => {
+    const failure = classifyArchiveError(
+      "download",
+      new CommandError(commandResult({ stderr: "ERROR: [example] Suspended" })),
+    );
+
+    expect(failure).toMatchObject({
+      kind: "terminal_private_or_deleted",
+      terminal: true,
+      retryable: false,
     });
   });
 

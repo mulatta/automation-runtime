@@ -303,14 +303,26 @@ function classifyFailure(result: CommandResult): YtDlpProbeResult {
     );
   }
   if (
-    /(unsupported url|no video formats|no formats found|does not contain|no media|not a video)/i.test(
+    /(unsupported url|no video (?:could be )?found|no video formats|no formats found|does not contain|no media|not a video)/i.test(
       lower,
     )
   ) {
     return failureResult("no_media", "no_media", false, true, result, message);
   }
+  if (/(connection reset|econnreset|enotfound|network)/i.test(lower)) {
+    return failureResult(
+      "retryable_network_timeout",
+      "unavailable",
+      true,
+      false,
+      result,
+      message,
+    );
+  }
   if (
-    /(unavailable|not available|deleted|removed|blocked|copyright)/i.test(lower)
+    /(unavailable|not available|deleted|removed|blocked|copyright|suspended)/i.test(
+      lower,
+    )
   ) {
     return failureResult(
       "unavailable",
