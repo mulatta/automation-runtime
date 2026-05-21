@@ -80,20 +80,6 @@ export const DrainPendingRequest = z
   .strict();
 export type DrainPendingRequest = z.infer<typeof DrainPendingRequest>;
 
-export const HostQueueDrainRequest = z
-  .object({
-    limit: z.coerce.number().int().min(1).max(500).default(25),
-    jobId: Uuid.optional(),
-    source: SourceName.optional(),
-    statuses: z
-      .array(z.enum(["pending", "failed"]))
-      .min(1)
-      .max(2)
-      .default(["pending", "failed"]),
-  })
-  .strict();
-export type HostQueueDrainRequest = z.infer<typeof HostQueueDrainRequest>;
-
 export const StatusRequest = z
   .object({
     jobId: Uuid.optional(),
@@ -126,13 +112,15 @@ export const ArchiveJobSnapshot = z
   .strict();
 export type ArchiveJobSnapshot = z.infer<typeof ArchiveJobSnapshot>;
 
-export const UrlMediaJobRunRequest = z
+export const UrlMediaAttemptRunRequest = z
   .object({
     mode: z.literal("db"),
     job: ArchiveJobSnapshot,
   })
   .strict();
-export type UrlMediaJobRunRequest = z.infer<typeof UrlMediaJobRunRequest>;
+export type UrlMediaAttemptRunRequest = z.infer<
+  typeof UrlMediaAttemptRunRequest
+>;
 
 export const UrlMediaWorkflowRunRequest = z
   .object({

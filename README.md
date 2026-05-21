@@ -13,7 +13,7 @@ Restate    = durable archive execution
 filesystem = final sink under /var/lib/url-media-archive/archive
 ```
 
-Discovery callers submit URLs to `UrlMediaArchive.submitDiscoveredUrl`. Restate canonicalizes and upserts catalog rows, then sends work to `UrlMediaJob/{jobKey}`. `yt-dlp` probes and downloads media.
+Discovery callers submit URLs to `UrlMediaArchive.submitDiscoveredUrl`. Restate canonicalizes and upserts catalog rows, then sends work to `UrlMediaWorkflow/{jobId}`. Workflows wait through retry backoff, acquire a per-host lease, and call `UrlMediaAttempt/{jobKey}` to probe and download with `yt-dlp`.
 
 Final files are stored under:
 
@@ -32,11 +32,14 @@ Successful jobs always clean temp directories. Failed jobs clean temp directorie
 ## Restate services
 
 ```text
-UrlMediaArchive      submitDiscoveredUrl/submitJob/submitUrl/drainPending/status/statusBySource
-UrlMediaJob/{key}    Virtual Object that executes one archive job and caches runtime state
+UrlMediaArchive                 submitDiscoveredUrl/submitJob/submitUrl/drainPending/status/statusBySource
+UrlMediaWorkflow/{jobId}        Workflow that owns retry sleep and job lifecycle dispatch
+UrlMediaAttempt/{jobKey}        Virtual Object that executes one archive attempt
+UrlMediaArchiveHostLeaseQueue   DurableLeaseQueue instance for per-host serialization
+UrlMediaArchiveRateLimit        DurableRateLimiter instance for yt-dlp pacing
 ```
 
-DB-backed jobs are the only submission path. `submitUrl` records manual URL submissions in the archive catalog before dispatching `UrlMediaJob/{jobKey}`. Status APIs return catalog status, last error details, and filesystem outputs when available. `drainPending` returns accepted jobs plus due/not-due queue summary counts.
+DB-backed jobs are the only submission path. `submitUrl` records manual URL submissions in the archive catalog before dispatching `UrlMediaWorkflow/{jobId}`. Status APIs return catalog status, last error details, and filesystem outputs when available. `drainPending` remains an operational API that sends workflows for due jobs and returns accepted jobs plus due/not-due summary counts.
 
 ## API examples
 
@@ -122,7 +125,7 @@ curl --fail --silent --show-error \
   http://127.0.0.1:8080/UrlMediaArchive/status
 ```
 
-`pg:<uuid>` job keys resolve through the durable catalog. Other job key formats return only runtime `UrlMediaJob` object state.
+`pg:<uuid>` job keys resolve through the durable catalog. Other job key formats return `null`.
 
 Drain due pending/retryable jobs:
 
@@ -153,11 +156,11 @@ Archive statuses:
 ```text
 pending -> probing -> downloading -> stored
 pending -> probing -> no_media
-pending -> probing/downloading -> failed -> pending retry via drainPending
+pending -> probing/downloading -> failed -> retry via UrlMediaWorkflow sleep
 pending -> probing/downloading -> terminal_failed
 ```
 
-Retryable failures get `status = "failed"` and `nextRetryAt` set. `drainPending` only dispatches failed jobs when `nextRetryAt` is null or due. Terminal failures use `terminal_failed` and do not retry.
+Retryable failures get `status = "failed"` and `nextRetryAt` set. `UrlMediaWorkflow` sleeps until `nextRetryAt` and retries automatically; `drainPending` only dispatches failed jobs when `nextRetryAt` is null or already due. Terminal failures use `terminal_failed` and do not retry.
 
 Default retry backoff:
 

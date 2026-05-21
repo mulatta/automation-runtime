@@ -229,6 +229,16 @@ pkgs.testers.runNixOSTest {
     machine.wait_for_unit("url-media-archive-worker.service")
     machine.wait_for_open_port(9080)
     machine.wait_until_succeeds("systemctl show -p Result --value url-media-archive-worker-register.service | grep '^success$'")
+    machine.wait_until_succeeds(
+        "curl --fail --silent --show-error --max-time 5 http://127.0.0.1:9070/services "
+        "| jq -e '(.services | map(.name)) as $names "
+        "| ($names | index(\"UrlMediaWorkflow\") != null) "
+        "and ($names | index(\"UrlMediaAttempt\") != null) "
+        "and ($names | index(\"UrlMediaArchiveHostLeaseQueue\") != null) "
+        "and ($names | index(\"UrlMediaJob\") == null) "
+        "and ($names | index(\"UrlMediaArchiveHostQueue\") == null)'",
+        timeout=30,
+    )
 
     payload = json.dumps({
         "source": "example-feed",

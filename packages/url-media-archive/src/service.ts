@@ -24,8 +24,7 @@ import type { YtDlpDownloadResult, YtDlpProbeResult } from "./ytdlp";
 import { canonicalizeUrl, jobIdFromJobKey, jobKeyForJobId } from "./ids";
 import {
   DrainPendingRequest,
-  HostQueueDrainRequest,
-  UrlMediaJobRunRequest,
+  UrlMediaAttemptRunRequest,
   UrlMediaWorkflowRunRequest,
   StatusBySourceRequest,
   StatusRequest,
@@ -38,10 +37,8 @@ import {
 import { assertSafeArchiveUrl } from "./urlSafety";
 
 const WORKER_VERSION = "0.1.0";
-const URL_MEDIA_JOB_SERVICE = "UrlMediaJob";
 const URL_MEDIA_ATTEMPT_SERVICE = "UrlMediaAttempt";
 const URL_MEDIA_WORKFLOW_SERVICE = "UrlMediaWorkflow";
-const URL_MEDIA_HOST_QUEUE_SERVICE = "UrlMediaArchiveHostQueue";
 const URL_MEDIA_HOST_LEASE_QUEUE_SERVICE = "UrlMediaArchiveHostLeaseQueue";
 const URL_MEDIA_RATE_LIMIT_SERVICE = "UrlMediaArchiveRateLimit";
 const RUN_METHOD = "run";
@@ -105,12 +102,6 @@ type DrainResult = PendingSummary & {
   hostKeys: string[];
 };
 
-type HostQueueDrainResult = {
-  host: string;
-  processed: number;
-  jobKeys: string[];
-};
-
 type ArchiveMediaResult =
   | { outputs: ArchiveOutputInput[]; failure?: undefined }
   | {
@@ -119,7 +110,7 @@ type ArchiveMediaResult =
       finalDirObservedAt?: string;
     };
 
-type UrlMediaJobState = {
+type UrlMediaAttemptState = {
   jobKey: string;
   mode: "db" | "url";
   url: string;
@@ -254,9 +245,7 @@ export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
       status: async (
         ctx: restate.Context,
         input: unknown,
-      ): Promise<
-        WorkerStatus | ArchiveJobDetails | UrlMediaJobState | null
-      > => {
+      ): Promise<WorkerStatus | ArchiveJobDetails | null> => {
         if (input === undefined || input === null) {
           return workerStatus(ctx);
         }
@@ -269,20 +258,11 @@ export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
         }
         if (request.jobKey) {
           const jobId = jobIdFromJobKey(request.jobKey);
-          if (jobId) {
-            const db = requireDatabase(deps);
-            return await ctx.run("get-status-by-pg-job-key", () =>
-              db.getArchiveJobDetails(jobId),
-            );
-          }
-          return await ctx.genericCall<undefined, UrlMediaJobState | null>({
-            service: URL_MEDIA_JOB_SERVICE,
-            method: "status",
-            key: request.jobKey,
-            parameter: undefined,
-            inputSerde: restate.serde.json,
-            outputSerde: restate.serde.json,
-          });
+          if (!jobId) return null;
+          const db = requireDatabase(deps);
+          return await ctx.run("get-status-by-pg-job-key", () =>
+            db.getArchiveJobDetails(jobId),
+          );
         }
         if (request.url) {
           const db = requireDatabase(deps);
@@ -308,34 +288,15 @@ export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
   });
 }
 
-export function createUrlMediaJob(deps: UrlMediaArchiveDeps = {}) {
-  return createUrlMediaAttemptLike(URL_MEDIA_JOB_SERVICE, deps, true);
-}
-
 export function createUrlMediaAttempt(deps: UrlMediaArchiveDeps = {}) {
-  return createUrlMediaAttemptLike(URL_MEDIA_ATTEMPT_SERVICE, deps, false);
-}
-
-function createUrlMediaAttemptLike(
-  name: string,
-  deps: UrlMediaArchiveDeps,
-  useCachedTerminalState: boolean,
-) {
   return restate.object({
-    name,
+    name: URL_MEDIA_ATTEMPT_SERVICE,
     handlers: {
       run: async (
         ctx: restate.ObjectContext,
         input: unknown,
-      ): Promise<UrlMediaJobState> => {
-        const request = UrlMediaJobRunRequest.parse(input);
-        if (useCachedTerminalState) {
-          const existing = await ctx.get<UrlMediaJobState>("state");
-          if (existing && COMPLETED_OR_TERMINAL.has(existing.status)) {
-            return existing;
-          }
-        }
-
+      ): Promise<UrlMediaAttemptState> => {
+        const request = UrlMediaAttemptRunRequest.parse(input);
         const db = requireDatabase(deps);
         const current = await ctx.run("get-current-job", () =>
           db.getArchiveJob(request.job.id),
@@ -364,8 +325,8 @@ function createUrlMediaAttemptLike(
       status: restate.handlers.object.shared(
         async (
           ctx: restate.ObjectSharedContext,
-        ): Promise<UrlMediaJobState | null> => {
-          return await ctx.get<UrlMediaJobState>("state");
+        ): Promise<UrlMediaAttemptState | null> => {
+          return await ctx.get<UrlMediaAttemptState>("state");
         },
       ),
     },
@@ -379,7 +340,7 @@ export function createUrlMediaWorkflow(deps: UrlMediaArchiveDeps = {}) {
       run: async (
         ctx: restate.WorkflowContext,
         input: unknown,
-      ): Promise<UrlMediaJobState> => {
+      ): Promise<UrlMediaAttemptState> => {
         const request = UrlMediaWorkflowRunRequest.parse(input);
         const db = requireDatabase(deps);
 
@@ -448,71 +409,22 @@ export function createUrlMediaHostLeaseQueue() {
   return createLeaseQueue({ name: URL_MEDIA_HOST_LEASE_QUEUE_SERVICE });
 }
 
-export function createUrlMediaHostQueue(deps: UrlMediaArchiveDeps = {}) {
-  return restate.object({
-    name: URL_MEDIA_HOST_QUEUE_SERVICE,
-    handlers: {
-      drain: async (
-        ctx: restate.ObjectContext,
-        input: unknown,
-      ): Promise<HostQueueDrainResult> => {
-        const request = HostQueueDrainRequest.parse(input ?? {});
-        const db = requireDatabase(deps);
-        const jobKeys: string[] = [];
-
-        if (request.jobId) {
-          const jobId = request.jobId;
-          const job = await ctx.run("get-requested-pending-job", () =>
-            db.getArchiveJob(jobId),
-          );
-          const nowMs = await ctx.date.now();
-          if (
-            job &&
-            shouldHostQueueRunJob(ctx.key, job, request.statuses, nowMs)
-          ) {
-            await callUrlMediaJob(ctx, job);
-            jobKeys.push(jobKeyForJobId(job.id));
-          }
-          return { host: ctx.key, processed: jobKeys.length, jobKeys };
-        }
-
-        for (let index = 0; index < request.limit; index += 1) {
-          const jobs = await ctx.run(`list-next-pending-job-${index}`, () =>
-            db.listPendingByHost(ctx.key, 1, request.source, request.statuses),
-          );
-          const job = jobs[0];
-          if (!job) break;
-
-          await callUrlMediaJob(ctx, job);
-          jobKeys.push(jobKeyForJobId(job.id));
-        }
-
-        return { host: ctx.key, processed: jobKeys.length, jobKeys };
-      },
-    },
-  });
-}
-
 export function createUrlMediaRateLimit() {
   return createRateLimiter({ name: URL_MEDIA_RATE_LIMIT_SERVICE });
 }
 
 export const urlMediaArchive = createUrlMediaArchive();
-export const urlMediaJob = createUrlMediaJob();
 export const urlMediaAttempt = createUrlMediaAttempt();
 export const urlMediaWorkflow = createUrlMediaWorkflow();
 export const urlMediaHostLeaseQueue = createUrlMediaHostLeaseQueue();
-export const urlMediaHostQueue = createUrlMediaHostQueue();
 export const urlMediaRateLimit = createUrlMediaRateLimit();
 
 export type UrlMediaArchive = ReturnType<typeof createUrlMediaArchive>;
-export type UrlMediaJob = ReturnType<typeof createUrlMediaJob>;
 export type UrlMediaAttempt = ReturnType<typeof createUrlMediaAttempt>;
 export type UrlMediaWorkflow = ReturnType<typeof createUrlMediaWorkflow>;
 export type UrlMediaHostLeaseQueue = ReturnType<
   typeof createUrlMediaHostLeaseQueue
 >;
-export type UrlMediaHostQueue = ReturnType<typeof createUrlMediaHostQueue>;
 export type UrlMediaRateLimit = ReturnType<typeof createUrlMediaRateLimit>;
 
 function requireDatabase(deps: UrlMediaArchiveDeps): ArchiveStore {
@@ -527,17 +439,10 @@ function requireDatabase(deps: UrlMediaArchiveDeps): ArchiveStore {
   return deps.db;
 }
 
-async function callUrlMediaJob(
-  ctx: restate.ObjectContext,
-  job: ArchiveJob,
-): Promise<UrlMediaJobState> {
-  return await callUrlMediaRun(ctx, URL_MEDIA_JOB_SERVICE, job);
-}
-
 async function callUrlMediaAttempt(
   ctx: restate.Context,
   job: ArchiveJob,
-): Promise<UrlMediaJobState> {
+): Promise<UrlMediaAttemptState> {
   return await callUrlMediaRun(ctx, URL_MEDIA_ATTEMPT_SERVICE, job);
 }
 
@@ -545,18 +450,20 @@ async function callUrlMediaRun(
   ctx: restate.Context,
   service: string,
   job: ArchiveJob,
-): Promise<UrlMediaJobState> {
-  return await ctx.genericCall<UrlMediaJobRunRequest, UrlMediaJobState>({
-    service,
-    method: RUN_METHOD,
-    key: jobKeyForJobId(job.id),
-    parameter: {
-      mode: "db",
-      job: toJobSnapshot(job),
+): Promise<UrlMediaAttemptState> {
+  return await ctx.genericCall<UrlMediaAttemptRunRequest, UrlMediaAttemptState>(
+    {
+      service,
+      method: RUN_METHOD,
+      key: jobKeyForJobId(job.id),
+      parameter: {
+        mode: "db",
+        job: toJobSnapshot(job),
+      },
+      inputSerde: restate.serde.json,
+      outputSerde: restate.serde.json,
     },
-    inputSerde: restate.serde.json,
-    outputSerde: restate.serde.json,
-  });
+  );
 }
 
 function sendUrlMediaWorkflowForJob(
@@ -587,21 +494,6 @@ function pendingJobsByHost(
   return hosts;
 }
 
-function shouldHostQueueRunJob(
-  host: string,
-  job: ArchiveJob,
-  statuses: readonly ArchiveJob["status"][],
-  nowMs: number,
-): boolean {
-  return (
-    rateLimitBucketForUrl(job.canonicalUrl) === host &&
-    statuses.includes(job.status) &&
-    (job.status !== "failed" ||
-      job.nextRetryAt === null ||
-      Date.parse(job.nextRetryAt) <= nowMs)
-  );
-}
-
 function toJobSnapshot(job: ArchiveJob): ArchiveJobSnapshot {
   return {
     id: job.id,
@@ -625,7 +517,7 @@ async function workerStatus(ctx: restate.Context): Promise<WorkerStatus> {
 async function stateFromJob(
   ctx: restate.ObjectContext,
   job: ArchiveJob,
-): Promise<UrlMediaJobState> {
+): Promise<UrlMediaAttemptState> {
   return await stateFromArchiveJob(ctx, job, ctx.key);
 }
 
@@ -633,7 +525,7 @@ async function stateFromArchiveJob(
   ctx: restate.Context,
   job: ArchiveJob,
   jobKey: string,
-): Promise<UrlMediaJobState> {
+): Promise<UrlMediaAttemptState> {
   return {
     jobKey,
     mode: "db",
@@ -651,7 +543,7 @@ async function probeDbJob(
   deps: UrlMediaArchiveDeps,
   db: ArchiveStore,
   job: ArchiveJob,
-): Promise<UrlMediaJobState> {
+): Promise<UrlMediaAttemptState> {
   const prober = deps.prober;
   if (!prober) {
     return await stateFromJob(ctx, job);
@@ -920,7 +812,7 @@ async function stateFromJobAndProbe(
   ctx: restate.ObjectContext,
   job: ArchiveJob,
   probe: YtDlpProbeResult,
-): Promise<UrlMediaJobState> {
+): Promise<UrlMediaAttemptState> {
   return {
     jobKey: ctx.key,
     mode: "db",

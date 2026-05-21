@@ -1,7 +1,6 @@
 import {
   DrainPendingRequest,
-  HostQueueDrainRequest,
-  UrlMediaJobRunRequest,
+  UrlMediaAttemptRunRequest,
   StatusBySourceRequest,
   SubmitDiscoveredUrlRequest,
   SubmitJobRequest,
@@ -38,17 +37,11 @@ describe("url-media-archive schemas", () => {
       limit: 25,
       statuses: ["pending", "failed"],
     });
-    const jobId = crypto.randomUUID();
-    expect(HostQueueDrainRequest.parse({ limit: 2, jobId })).toEqual({
-      limit: 2,
-      jobId,
-      statuses: ["pending", "failed"],
-    });
   });
 
   it("allows only DB-backed media job runs", () => {
     expect(() =>
-      UrlMediaJobRunRequest.parse({
+      UrlMediaAttemptRunRequest.parse({
         mode: "url",
         url: "https://example.com/video",
         canonicalUrl: "https://example.com/video",
