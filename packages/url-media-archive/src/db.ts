@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { stringifyJsonForPostgres } from "./json";
+import { canonicalizeUrl } from "./ids";
 import { UrlArchiveStatus, UrlProbeStatus } from "./schema";
 
 export type QueryResult<T extends Record<string, unknown>> = {
@@ -69,6 +70,56 @@ export type UpsertDiscoveredUrlResult = {
   sourceId: string;
 };
 
+export type DiscoveryState = {
+  source: string;
+  version: number;
+  nextToken: string;
+  coverageComplete: boolean;
+  catchupIncomplete: boolean;
+  anchorIds: string[];
+  currentRun: Record<string, unknown> | null;
+  lastCheckedAt: string | null;
+  lastDiscoveredCount: number;
+  lastSubmittedCount: number;
+  lastStatusCheckedAt: string | null;
+};
+
+export type DiscoveryPageUrlInput = Omit<
+  DiscoveredUrlInput,
+  "source" | "canonicalUrl" | "sourceKey"
+> & {
+  sourceKey: string;
+};
+
+export type DiscoveryPageInput = {
+  source: string;
+  stateVersion?: number;
+  pageSize: number;
+  pagesPerRun: number;
+  fullCoverage: boolean;
+  startedFromCursor: boolean;
+  scanStartedAt: string;
+  observedAt: string;
+  paginationToken?: string;
+  nextToken?: string;
+  items: readonly DiscoveryPageUrlInput[];
+};
+
+export type DiscoveryPageResult = {
+  state: DiscoveryState;
+  jobs: ArchiveJob[];
+  pageDiscoveredCount: number;
+  submittedCount: number;
+  discoveredCount: number;
+  knownDiscoveredCount: number;
+  pagesFetched: number;
+  continuePagination: boolean;
+  savedCursor: string;
+  nextToken: string;
+  coverageComplete: boolean;
+  catchupIncomplete: boolean;
+};
+
 export type ArchiveStore = {
   upsertDiscoveredUrl(
     input: DiscoveredUrlInput,
@@ -129,6 +180,12 @@ export type ArchiveStore = {
     jobId: string,
     outputs: readonly ArchiveOutputInput[],
   ): Promise<void>;
+  getDiscoveryState(source: string): Promise<DiscoveryState>;
+  startDiscoveryScan(
+    source: string,
+    resetCursor?: boolean,
+  ): Promise<DiscoveryState>;
+  recordDiscoveryPage(input: DiscoveryPageInput): Promise<DiscoveryPageResult>;
 };
 
 const ArchiveJobRow = z.object({
@@ -159,6 +216,22 @@ const PendingSummaryRow = z.object({
 
 const IdRow = z.object({ id: z.string().uuid() });
 
+const SourceKeyRow = z.object({ source_key: z.string() });
+
+const DiscoveryStateRow = z.object({
+  source: z.string(),
+  version: z.union([z.number(), z.string()]),
+  next_token: z.string().nullable().optional(),
+  coverage_complete: z.boolean(),
+  catchup_incomplete: z.boolean(),
+  anchor_ids: z.array(z.string()).optional().default([]),
+  current_run: z.record(z.string(), z.unknown()).nullable().optional(),
+  last_checked_at: z.union([z.string(), z.date()]).nullable().optional(),
+  last_discovered_count: z.union([z.number(), z.string()]).optional(),
+  last_submitted_count: z.union([z.number(), z.string()]).optional(),
+  last_status_checked_at: z.union([z.string(), z.date()]).nullable().optional(),
+});
+
 export class ArchiveDatabase {
   constructor(private readonly db: Queryable) {}
 
@@ -168,6 +241,136 @@ export class ArchiveDatabase {
     const job = await this.upsertArchiveJob(input.url, input.canonicalUrl);
     const sourceId = await this.upsertSource(job.id, input);
     return { job, sourceId };
+  }
+
+  async getDiscoveryState(source: string): Promise<DiscoveryState> {
+    return await this.ensureDiscoveryState(source);
+  }
+
+  async startDiscoveryScan(
+    source: string,
+    resetCursor = false,
+  ): Promise<DiscoveryState> {
+    if (!resetCursor) return await this.ensureDiscoveryState(source);
+    const result = await this.db.query(
+      `
+        INSERT INTO url_archive_discovery_states (source)
+        VALUES ($1)
+        ON CONFLICT (source) DO UPDATE
+          SET next_token = '',
+              current_run = null,
+              version = url_archive_discovery_states.version + 1,
+              updated_at = now()
+        RETURNING source, version, next_token, coverage_complete, catchup_incomplete, anchor_ids, current_run,
+          last_checked_at, last_discovered_count, last_submitted_count, last_status_checked_at
+      `,
+      [source],
+    );
+    return parseDiscoveryState(result.rows[0]);
+  }
+
+  async recordDiscoveryPage(
+    input: DiscoveryPageInput,
+  ): Promise<DiscoveryPageResult> {
+    const state = await this.ensureDiscoveryState(input.source);
+    if (
+      input.stateVersion !== undefined &&
+      state.version !== input.stateVersion
+    ) {
+      throw new Error(
+        `Discovery state version conflict for ${input.source}: expected ${input.stateVersion}, got ${state.version}`,
+      );
+    }
+
+    const sourceKeys = input.items
+      .map((item) => item.sourceKey)
+      .filter(Boolean);
+    const knownKeys = await this.listKnownSourceKeys(input.source, sourceKeys);
+    const canStopAtKnownBoundary =
+      state.coverageComplete === true &&
+      input.fullCoverage !== true &&
+      !input.startedFromCursor;
+    const foundKnownBoundary =
+      canStopAtKnownBoundary && sourceKeys.some((key) => knownKeys.has(key));
+    const pageDiscoveredCount = sourceKeys.filter(
+      (key) => !knownKeys.has(key),
+    ).length;
+    const currentRun = normalizeDiscoveryRun(state.currentRun);
+    const pagesFetched = Number(currentRun.pages_seen ?? 0) + 1;
+    const discoveredCount =
+      Number(currentRun.discovered_count ?? 0) + pageDiscoveredCount;
+    const submittedCount =
+      Number(currentRun.submitted_count ?? 0) + input.items.length;
+    const startedFromCursor = Boolean(
+      currentRun.started_from_cursor ?? input.startedFromCursor,
+    );
+    const hasMoreAfterThisPage = Boolean(
+      input.nextToken && !foundKnownBoundary,
+    );
+    const continuePagination = Boolean(
+      hasMoreAfterThisPage && pagesFetched < input.pagesPerRun,
+    );
+    const coverageComplete = !hasMoreAfterThisPage;
+    const catchupIncomplete = hasMoreAfterThisPage;
+    const savedCursor = hasMoreAfterThisPage
+      ? continuePagination
+        ? String(state.nextToken || input.paginationToken || "")
+        : String(input.nextToken)
+      : "";
+    const nextStateRun = continuePagination
+      ? {
+          pages_seen: pagesFetched,
+          discovered_count: discoveredCount,
+          submitted_count: submittedCount,
+          started_from_cursor: startedFromCursor,
+          started_at:
+            typeof currentRun.started_at === "string"
+              ? currentRun.started_at
+              : input.scanStartedAt,
+        }
+      : null;
+    const anchorIds =
+      pagesFetched === 1 && sourceKeys.length
+        ? sourceKeys.slice(0, 10)
+        : state.anchorIds;
+
+    const jobs: ArchiveJob[] = [];
+    for (const item of input.items) {
+      const upserted = await this.upsertDiscoveredUrl({
+        ...item,
+        source: input.source,
+        canonicalUrl: canonicalizeUrl(item.url),
+      });
+      jobs.push(upserted.job);
+    }
+
+    const updatedState = await this.updateDiscoveryState({
+      source: input.source,
+      expectedVersion: state.version,
+      nextToken: savedCursor,
+      coverageComplete,
+      catchupIncomplete,
+      anchorIds,
+      currentRun: nextStateRun,
+      observedAt: input.observedAt,
+      discoveredCount,
+      submittedCount,
+    });
+
+    return {
+      state: updatedState,
+      jobs,
+      pageDiscoveredCount,
+      submittedCount,
+      discoveredCount,
+      knownDiscoveredCount: knownKeys.size + pageDiscoveredCount,
+      pagesFetched,
+      continuePagination,
+      savedCursor,
+      nextToken: input.nextToken ?? "",
+      coverageComplete,
+      catchupIncomplete,
+    };
   }
 
   async getArchiveJob(id: string): Promise<ArchiveJob | null> {
@@ -489,6 +692,90 @@ export class ArchiveDatabase {
     }
   }
 
+  private async ensureDiscoveryState(source: string): Promise<DiscoveryState> {
+    const result = await this.db.query(
+      `
+        INSERT INTO url_archive_discovery_states (source)
+        VALUES ($1)
+        ON CONFLICT (source) DO UPDATE
+          SET updated_at = url_archive_discovery_states.updated_at
+        RETURNING source, version, next_token, coverage_complete, catchup_incomplete, anchor_ids, current_run,
+          last_checked_at, last_discovered_count, last_submitted_count, last_status_checked_at
+      `,
+      [source],
+    );
+    return parseDiscoveryState(result.rows[0]);
+  }
+
+  private async listKnownSourceKeys(
+    source: string,
+    sourceKeys: readonly string[],
+  ): Promise<Set<string>> {
+    if (sourceKeys.length === 0) return new Set();
+    const result = await this.db.query(
+      `
+        SELECT source_key
+        FROM url_archive_sources
+        WHERE source = $1 AND source_key = ANY($2::text[])
+      `,
+      [source, sourceKeys],
+    );
+    return new Set(
+      result.rows.map((row) => SourceKeyRow.parse(row).source_key),
+    );
+  }
+
+  private async updateDiscoveryState(input: {
+    source: string;
+    expectedVersion: number;
+    nextToken: string;
+    coverageComplete: boolean;
+    catchupIncomplete: boolean;
+    anchorIds: readonly string[];
+    currentRun: Record<string, unknown> | null;
+    observedAt: string;
+    discoveredCount: number;
+    submittedCount: number;
+  }): Promise<DiscoveryState> {
+    const result = await this.db.query(
+      `
+        UPDATE url_archive_discovery_states
+        SET next_token = $2,
+            coverage_complete = $3,
+            catchup_incomplete = $4,
+            anchor_ids = $5::jsonb,
+            current_run = $6::jsonb,
+            last_checked_at = $7::timestamptz,
+            last_discovered_count = $8,
+            last_submitted_count = $9,
+            version = version + 1,
+            updated_at = now()
+        WHERE source = $1 AND version = $10
+        RETURNING source, version, next_token, coverage_complete, catchup_incomplete, anchor_ids, current_run,
+          last_checked_at, last_discovered_count, last_submitted_count, last_status_checked_at
+      `,
+      [
+        input.source,
+        input.nextToken,
+        input.coverageComplete,
+        input.catchupIncomplete,
+        stringifyJsonForPostgres(input.anchorIds),
+        stringifyJsonForPostgres(input.currentRun),
+        input.observedAt,
+        input.discoveredCount,
+        input.submittedCount,
+        input.expectedVersion,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(
+        `Discovery state version conflict for ${input.source}: expected ${input.expectedVersion}`,
+      );
+    }
+    return parseDiscoveryState(row);
+  }
+
   private async parseOptionalJobDetails(
     row: Record<string, unknown> | undefined,
   ): Promise<ArchiveJobDetails | null> {
@@ -636,6 +923,31 @@ function parseOutput(row: Record<string, unknown> | undefined): ArchiveOutput {
     blake3: parsed.blake3 ?? undefined,
     metadata: parsed.metadata ?? {},
   };
+}
+
+function parseDiscoveryState(
+  row: Record<string, unknown> | undefined,
+): DiscoveryState {
+  const parsed = DiscoveryStateRow.parse(row);
+  return {
+    source: parsed.source,
+    version: numberFromDatabase(parsed.version) ?? 0,
+    nextToken: parsed.next_token ?? "",
+    coverageComplete: parsed.coverage_complete,
+    catchupIncomplete: parsed.catchup_incomplete,
+    anchorIds: parsed.anchor_ids,
+    currentRun: parsed.current_run ?? null,
+    lastCheckedAt: dateTimeToIso(parsed.last_checked_at),
+    lastDiscoveredCount: numberFromDatabase(parsed.last_discovered_count) ?? 0,
+    lastSubmittedCount: numberFromDatabase(parsed.last_submitted_count) ?? 0,
+    lastStatusCheckedAt: dateTimeToIso(parsed.last_status_checked_at),
+  };
+}
+
+function normalizeDiscoveryRun(
+  value: Record<string, unknown> | null,
+): Record<string, unknown> {
+  return value && typeof value === "object" ? value : {};
 }
 
 function parsePendingSummary(rows: Record<string, unknown>[]): PendingSummary {

@@ -14,5 +14,9 @@ describe("database migrations", () => {
     expect(initialMigrationSql).toContain("canonical_url text NOT NULL UNIQUE");
     expect(initialMigrationSql).toContain("UNIQUE (source, source_key)");
     expect(initialMigrationSql).toContain("url_archive_jobs_queue_idx");
+    expect(initialMigrationSql).toContain(
+      "CREATE TABLE IF NOT EXISTS url_archive_discovery_states",
+    );
+    expect(initialMigrationSql).toContain("version bigint NOT NULL DEFAULT 0");
   });
 });

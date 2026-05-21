@@ -100,6 +100,55 @@ export const StatusBySourceRequest = z
   .strict();
 export type StatusBySourceRequest = z.infer<typeof StatusBySourceRequest>;
 
+export const GetDiscoveryStateRequest = z
+  .object({
+    source: SourceName,
+  })
+  .strict();
+export type GetDiscoveryStateRequest = z.infer<typeof GetDiscoveryStateRequest>;
+
+export const StartDiscoveryScanRequest = z
+  .object({
+    source: SourceName,
+    resetCursor: z.boolean().default(false),
+  })
+  .strict();
+export type StartDiscoveryScanRequest = z.infer<
+  typeof StartDiscoveryScanRequest
+>;
+
+export const DiscoveryPageItem = z
+  .object({
+    sourceKey: NonEmptyString.max(512),
+    url: z.url(),
+    sourceUrl: z.url().optional(),
+    sourceCreatedAt: z.iso.datetime().optional(),
+    discoveredAt: z.iso.datetime().optional(),
+    idempotencyKey: IdempotencyKey.optional(),
+    metadata: Metadata.optional(),
+  })
+  .strict();
+export type DiscoveryPageItem = z.infer<typeof DiscoveryPageItem>;
+
+export const RecordDiscoveryPageRequest = z
+  .object({
+    source: SourceName,
+    stateVersion: z.number().int().nonnegative().optional(),
+    pageSize: z.number().int().min(1).max(100),
+    pagesPerRun: z.number().int().min(1).max(100),
+    fullCoverage: z.boolean().default(false),
+    startedFromCursor: z.boolean().default(false),
+    scanStartedAt: z.iso.datetime(),
+    paginationToken: z.string().max(2048).default(""),
+    nextToken: z.string().max(2048).default(""),
+    requestContext: Metadata.optional(),
+    items: z.array(DiscoveryPageItem).max(100),
+  })
+  .strict();
+export type RecordDiscoveryPageRequest = z.infer<
+  typeof RecordDiscoveryPageRequest
+>;
+
 export const ArchiveJobSnapshot = z
   .object({
     id: Uuid,

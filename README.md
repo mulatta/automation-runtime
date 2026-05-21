@@ -32,7 +32,7 @@ Successful jobs always clean temp directories. Failed jobs clean temp directorie
 ## Restate services
 
 ```text
-UrlMediaArchive                 submitDiscoveredUrl/submitJob/submitUrl/drainPending/status/statusBySource
+UrlMediaArchive                 submitDiscoveredUrl/submitJob/submitUrl/drainPending/status/statusBySource/startDiscoveryScan/getDiscoveryState/recordDiscoveryPage
 UrlMediaWorkflow/{jobId}        Workflow that owns retry sleep and job lifecycle dispatch
 UrlMediaAttempt/{jobKey}        Virtual Object that executes one archive attempt
 UrlMediaArchiveHostLeaseQueue   DurableLeaseQueue instance for per-host serialization
@@ -40,6 +40,8 @@ UrlMediaArchiveRateLimit        DurableRateLimiter instance for yt-dlp pacing
 ```
 
 DB-backed jobs are the only submission path. `submitUrl` records manual URL submissions in the archive catalog before dispatching `UrlMediaWorkflow/{jobId}`. Status APIs return catalog status, last error details, and filesystem outputs when available. `drainPending` remains an operational API that sends workflows for due jobs and returns accepted jobs plus due/not-due summary counts.
+
+Discovery state also lives in Postgres. `startDiscoveryScan` reads or resets a source cursor, `recordDiscoveryPage` records one discovered page with optimistic state version checking, upserts discovered URLs, and dispatches the resulting workflows. This keeps n8n as an API caller instead of the source of archive/discovery truth.
 
 ## API examples
 
