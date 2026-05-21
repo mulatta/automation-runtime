@@ -299,6 +299,56 @@ pkgs.testers.runNixOSTest {
     machine.succeed("find /var/lib/url-media-archive/archive/db -type f | grep -F 'Replay fixture [123].nfo'")
     machine.succeed(f"test ! -d {temp_dir_for_job_key(accepted['jobKey'])}")
 
+    discovery_start_payload = json.dumps({"source": "replay-discovery", "resetCursor": True})
+    machine.succeed(
+        "curl --fail --silent --show-error --max-time 5 "
+        "-H 'content-type: application/json' "
+        f"--data '{discovery_start_payload}' "
+        "http://127.0.0.1:8080/UrlMediaArchive/startDiscoveryScan > /tmp/discovery-start.json"
+    )
+    discovery_start = json.loads(machine.succeed("cat /tmp/discovery-start.json"))
+    discovery_page_payload = json.dumps({
+        "source": "replay-discovery",
+        "stateVersion": discovery_start["version"],
+        "pageSize": 10,
+        "pagesPerRun": 1,
+        "fullCoverage": True,
+        "startedFromCursor": False,
+        "scanStartedAt": "2026-05-18T00:00:00.000Z",
+        "paginationToken": "",
+        "nextToken": "cursor-2",
+        "items": [
+            {"sourceKey": "124", "url": "https://example.com/media/124"},
+            {"sourceKey": "125", "url": "https://example.com/media/125"},
+        ],
+    })
+    machine.succeed(
+        "curl --fail --silent --show-error --max-time 5 "
+        "-H 'content-type: application/json' "
+        f"--data '{discovery_page_payload}' "
+        "http://127.0.0.1:8080/UrlMediaArchive/recordDiscoveryPage > /tmp/discovery-page.json"
+    )
+    discovery_page = json.loads(machine.succeed("cat /tmp/discovery-page.json"))
+    assert discovery_page["accepted"] == 2
+    assert discovery_page["pageDiscoveredCount"] == 2
+    assert discovery_page["continuePagination"] is False
+    assert discovery_page["savedCursor"] == "cursor-2"
+    machine.wait_until_succeeds(
+        "curl --fail --silent --show-error --max-time 5 "
+        "-H 'content-type: application/json' "
+        "--data '{\"source\":\"replay-discovery\"}' "
+        "http://127.0.0.1:8080/UrlMediaArchive/getDiscoveryState "
+        "| jq -e '.nextToken == \"cursor-2\" and .catchupIncomplete == true and .lastSubmittedCount == 2'",
+        timeout=30,
+    )
+    machine.wait_until_succeeds(
+        "curl --fail --silent --show-error --max-time 5 "
+        "-H 'content-type: application/json' "
+        "--data '{\"source\":\"replay-discovery\",\"sourceKey\":\"124\"}' "
+        "http://127.0.0.1:8080/UrlMediaArchive/statusBySource | jq -e '.status == \"stored\"'",
+        timeout=60,
+    )
+
     workflow_job_id = machine.succeed(
         "timeout 20 psql -h /run/postgresql -U url-media-archive -d url-media-archive -qAt "
         "-c \"WITH inserted AS ("

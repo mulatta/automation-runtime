@@ -98,4 +98,21 @@ CREATE INDEX IF NOT EXISTS url_archive_outputs_job_idx
 CREATE INDEX IF NOT EXISTS url_archive_outputs_blake3_bytes_idx
   ON url_archive_outputs (blake3, bytes)
   WHERE blake3 IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS url_archive_discovery_states (
+  source text PRIMARY KEY,
+  version bigint NOT NULL DEFAULT 0,
+  next_token text NOT NULL DEFAULT '',
+  coverage_complete boolean NOT NULL DEFAULT false,
+  catchup_incomplete boolean NOT NULL DEFAULT false,
+  anchor_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  current_run jsonb,
+  last_checked_at timestamptz,
+  last_discovered_count integer NOT NULL DEFAULT 0,
+  last_submitted_count integer NOT NULL DEFAULT 0,
+  last_status_checked_at timestamptz,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 `;

@@ -1,5 +1,8 @@
 import {
   DrainPendingRequest,
+  GetDiscoveryStateRequest,
+  RecordDiscoveryPageRequest,
+  StartDiscoveryScanRequest,
   UrlMediaAttemptRunRequest,
   StatusBySourceRequest,
   SubmitDiscoveredUrlRequest,
@@ -57,5 +60,39 @@ describe("url-media-archive schemas", () => {
     expect(
       StatusBySourceRequest.parse({ source: "example-feed", sourceKey: "123" }),
     ).toEqual({ source: "example-feed", sourceKey: "123" });
+  });
+
+  it("validates discovery state API inputs", () => {
+    expect(GetDiscoveryStateRequest.parse({ source: "x-liked" })).toEqual({
+      source: "x-liked",
+    });
+    expect(
+      StartDiscoveryScanRequest.parse({ source: "x-liked", resetCursor: true }),
+    ).toEqual({ source: "x-liked", resetCursor: true });
+    expect(
+      RecordDiscoveryPageRequest.parse({
+        source: "x-liked",
+        stateVersion: 2,
+        pageSize: 10,
+        pagesPerRun: 10,
+        fullCoverage: false,
+        startedFromCursor: false,
+        scanStartedAt: "2026-05-18T00:00:00.000Z",
+        paginationToken: "",
+        nextToken: "next",
+        items: [
+          {
+            sourceKey: "123",
+            url: "https://x.com/i/status/123",
+            metadata: { author: "i" },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      source: "x-liked",
+      stateVersion: 2,
+      nextToken: "next",
+      items: [{ sourceKey: "123" }],
+    });
   });
 });

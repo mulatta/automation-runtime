@@ -218,6 +218,140 @@ describe("ArchiveDatabase", () => {
     ]);
   });
 
+  it("reads and resets source discovery state", async () => {
+    const client = new ScriptedClient([
+      rows({
+        source: "x-liked",
+        version: "3",
+        next_token: "cursor",
+        coverage_complete: true,
+        catchup_incomplete: false,
+        anchor_ids: ["1", "2"],
+        current_run: { pages_seen: 1 },
+        last_checked_at: "2026-05-18T00:00:00.000Z",
+        last_discovered_count: 4,
+        last_submitted_count: 5,
+        last_status_checked_at: null,
+      }),
+      rows({
+        source: "x-liked",
+        version: "4",
+        next_token: "",
+        coverage_complete: true,
+        catchup_incomplete: false,
+        anchor_ids: ["1", "2"],
+        current_run: null,
+        last_checked_at: "2026-05-18T00:00:00.000Z",
+        last_discovered_count: 4,
+        last_submitted_count: 5,
+        last_status_checked_at: null,
+      }),
+    ]);
+    const db = new ArchiveDatabase(client);
+
+    await expect(db.getDiscoveryState("x-liked")).resolves.toMatchObject({
+      source: "x-liked",
+      version: 3,
+      nextToken: "cursor",
+      currentRun: { pages_seen: 1 },
+    });
+    await expect(db.startDiscoveryScan("x-liked", true)).resolves.toMatchObject(
+      {
+        source: "x-liked",
+        version: 4,
+        nextToken: "",
+        currentRun: null,
+      },
+    );
+
+    expect(client.calls[0]?.text).toContain(
+      "INSERT INTO url_archive_discovery_states",
+    );
+    expect(client.calls[1]?.text).toContain("next_token = ''");
+  });
+
+  it("records discovery pages with source-key boundary detection and cursor state", async () => {
+    const client = new ScriptedClient([
+      rows({
+        source: "x-liked",
+        version: "2",
+        next_token: "",
+        coverage_complete: true,
+        catchup_incomplete: false,
+        anchor_ids: [],
+        current_run: null,
+        last_checked_at: null,
+        last_discovered_count: 0,
+        last_submitted_count: 0,
+        last_status_checked_at: null,
+      }),
+      rows({ source_key: "known" }),
+      rows({
+        id: "018f6e9d-4a31-7565-982a-cb5e5f01d31f",
+        url: "https://x.com/i/status/known",
+        canonical_url: "https://x.com/i/status/known",
+        status: "pending",
+        probe_status: "unknown",
+        attempts: 0,
+      }),
+      rows({ id: "018f6e9d-4a31-7565-982a-cb5e5f01d320" }),
+      rows({
+        id: "118f6e9d-4a31-7565-982a-cb5e5f01d31f",
+        url: "https://x.com/i/status/new",
+        canonical_url: "https://x.com/i/status/new",
+        status: "pending",
+        probe_status: "unknown",
+        attempts: 0,
+      }),
+      rows({ id: "118f6e9d-4a31-7565-982a-cb5e5f01d320" }),
+      rows({
+        source: "x-liked",
+        version: "3",
+        next_token: "next",
+        coverage_complete: false,
+        catchup_incomplete: true,
+        anchor_ids: ["known", "new"],
+        current_run: {
+          pages_seen: 1,
+          discovered_count: 1,
+          submitted_count: 2,
+          started_from_cursor: false,
+          started_at: "2026-05-18T00:00:00.000Z",
+        },
+        last_checked_at: "2026-05-18T00:00:01.000Z",
+        last_discovered_count: 1,
+        last_submitted_count: 2,
+        last_status_checked_at: null,
+      }),
+    ]);
+    const db = new ArchiveDatabase(client);
+
+    const result = await db.recordDiscoveryPage({
+      source: "x-liked",
+      stateVersion: 2,
+      pageSize: 10,
+      pagesPerRun: 10,
+      fullCoverage: false,
+      startedFromCursor: false,
+      scanStartedAt: "2026-05-18T00:00:00.000Z",
+      observedAt: "2026-05-18T00:00:01.000Z",
+      paginationToken: "",
+      nextToken: "next",
+      items: [
+        { sourceKey: "known", url: "https://x.com/i/status/known" },
+        { sourceKey: "new", url: "https://x.com/i/status/new" },
+      ],
+    });
+
+    expect(result.pageDiscoveredCount).toBe(1);
+    expect(result.continuePagination).toBe(false);
+    expect(result.savedCursor).toBe("");
+    expect(result.jobs).toHaveLength(2);
+    expect(client.calls[1]?.text).toContain("FROM url_archive_sources");
+    expect(client.calls[6]?.text).toContain("version = version + 1");
+    expect(client.calls[6]?.values).toContain(2);
+  });
+
   it("lists only selected pending statuses and due retryable failures", async () => {
     const client = new ScriptedClient([
       rows({

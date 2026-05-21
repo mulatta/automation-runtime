@@ -12,6 +12,8 @@ import type {
   ArchiveJobDetails,
   ArchiveOutputInput,
   ArchiveStore,
+  DiscoveryPageResult,
+  DiscoveryState,
   PendingSummary,
 } from "./db";
 import {
@@ -24,6 +26,9 @@ import type { YtDlpDownloadResult, YtDlpProbeResult } from "./ytdlp";
 import { canonicalizeUrl, jobIdFromJobKey, jobKeyForJobId } from "./ids";
 import {
   DrainPendingRequest,
+  GetDiscoveryStateRequest,
+  RecordDiscoveryPageRequest,
+  StartDiscoveryScanRequest,
   UrlMediaAttemptRunRequest,
   UrlMediaWorkflowRunRequest,
   StatusBySourceRequest,
@@ -100,6 +105,16 @@ type DrainResult = PendingSummary & {
   skipped: number;
   jobKeys: string[];
   hostKeys: string[];
+};
+
+type RecordDiscoveryPageResponse = Omit<DiscoveryPageResult, "jobs"> & {
+  accepted: number;
+  jobKeys: string[];
+  source: string;
+  page_size: number;
+  pages_per_run: number;
+  pagination_token: string;
+  requestContext?: Record<string, unknown>;
 };
 
 type ArchiveMediaResult =
@@ -239,6 +254,71 @@ export function createUrlMediaArchive(deps: UrlMediaArchiveDeps = {}) {
           skipped: Math.max(0, summary.due - jobKeys.length),
           jobKeys,
           hostKeys: [...hosts.keys()],
+        };
+      },
+
+      getDiscoveryState: async (
+        ctx: restate.Context,
+        input: unknown,
+      ): Promise<DiscoveryState> => {
+        const request = GetDiscoveryStateRequest.parse(input);
+        const db = requireDatabase(deps);
+        return await ctx.run("get-discovery-state", () =>
+          db.getDiscoveryState(request.source),
+        );
+      },
+
+      startDiscoveryScan: async (
+        ctx: restate.Context,
+        input: unknown,
+      ): Promise<DiscoveryState> => {
+        const request = StartDiscoveryScanRequest.parse(input);
+        const db = requireDatabase(deps);
+        return await ctx.run("start-discovery-scan", () =>
+          db.startDiscoveryScan(request.source, request.resetCursor),
+        );
+      },
+
+      recordDiscoveryPage: async (
+        ctx: restate.Context,
+        input: unknown,
+      ): Promise<RecordDiscoveryPageResponse> => {
+        const request = RecordDiscoveryPageRequest.parse(input);
+        const db = requireDatabase(deps);
+        const observedAt = new Date(await ctx.date.now()).toISOString();
+        for (const item of request.items) {
+          assertSafeArchiveUrl(item.url);
+        }
+
+        let recorded: DiscoveryPageResult;
+        try {
+          recorded = await ctx.run("record-discovery-page", () =>
+            db.recordDiscoveryPage({
+              ...request,
+              observedAt,
+            }),
+          );
+        } catch (error) {
+          if (isDiscoveryStateConflict(error)) {
+            throw new restate.TerminalError(error.message, { errorCode: 409 });
+          }
+          throw error;
+        }
+
+        const jobKeys = recorded.jobs.map((job) => jobKeyForJobId(job.id));
+        for (const job of recorded.jobs) {
+          sendUrlMediaWorkflowForJob(ctx, job);
+        }
+
+        return {
+          ...recorded,
+          accepted: recorded.jobs.length,
+          jobKeys,
+          source: request.source,
+          page_size: request.pageSize,
+          pages_per_run: request.pagesPerRun,
+          pagination_token: recorded.nextToken,
+          requestContext: request.requestContext,
         };
       },
 
@@ -437,6 +517,13 @@ function requireDatabase(deps: UrlMediaArchiveDeps): ArchiveStore {
     );
   }
   return deps.db;
+}
+
+function isDiscoveryStateConflict(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    error.message.startsWith("Discovery state version conflict")
+  );
 }
 
 async function callUrlMediaAttempt(
