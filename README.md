@@ -1,6 +1,10 @@
-# restate-workflows
+# automation-runtime
 
-Reusable Restate workflows and workers.
+Typed edge adapters, shared contracts, and durable job runtimes for personal automation.
+
+This repository owns runtime code: HTTP/webhook adapters, schema contracts, Restate coordination helpers, and durable workers. It does not own machine deployment, agent personality, or generic CLI skill documentation; keep those in dotfiles/OpenCrow configuration and skills repositories.
+
+Current packages are still Restate-centered because the first durable runtime is `url-media-archive`. Future edge adapters and contracts should stay thin: validate, normalize, and dispatch work without becoming the durable state owner or agent policy layer.
 
 ## URL media archive worker
 
