@@ -1,8 +1,8 @@
 {
-  "name": "restate-workflows",
+  "name": "automation-runtime",
   "version": "0.1.0",
   "private": true,
-  "description": "Reusable Restate workflows and workers",
+  "description": "Typed edge adapters and durable job runtimes for personal automation",
   "license": "UNLICENSED",
   "workspaces": [
     "packages/*"

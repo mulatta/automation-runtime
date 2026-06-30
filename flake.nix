@@ -1,5 +1,5 @@
 {
-  description = "Restate Workflows & Workers";
+  description = "Personal automation runtime";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
